@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core"
 import type { EventMessage, GatewayMethod, RequestMessage, ServerMessage } from "./protocol"
 import {
   GatewayError,
@@ -32,6 +33,12 @@ function socketUrl(input: string) {
   return url.toString()
 }
 
+function isNativeLoopbackSocket(input: string) {
+  if (!Capacitor.isNativePlatform()) return false
+  const url = new URL(input)
+  return url.protocol === "ws:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]")
+}
+
 export class WebSocketGatewayClient implements GatewayClient {
   private socket: WebSocket | null = null
   private connected = false
@@ -47,7 +54,7 @@ export class WebSocketGatewayClient implements GatewayClient {
     let url: string
     try {
       url = socketUrl(connection.url)
-      if (window.location.protocol === "https:" && url.startsWith("ws:")) {
+      if (window.location.protocol === "https:" && url.startsWith("ws:") && !isNativeLoopbackSocket(url)) {
         throw new GatewayError("invalid-url", "This HTTPS app requires a secure wss:// gateway URL")
       }
     } catch (error) {
