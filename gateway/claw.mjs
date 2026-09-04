@@ -2,6 +2,7 @@
 
 import { spawn, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
+import { realpathSync } from "node:fs"
 import { chmod, cp, mkdir, open, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { networkInterfaces, homedir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
@@ -314,7 +315,16 @@ async function main() {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function isMainModule() {
+  if (!process.argv[1]) return false
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  }
+}
+
+if (isMainModule()) {
   main().catch((error) => {
     console.error(`claw: ${error.message}`)
     process.exitCode = 1
