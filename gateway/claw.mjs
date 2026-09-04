@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import { chmod, cp, mkdir, open, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, cp, mkdir, open, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { networkInterfaces, homedir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -23,6 +23,7 @@ const gatewayPort = Number(process.env.CLAW_PORT || 8787)
 const frontendHost = process.env.CLAW_FRONTEND_HOST || "127.0.0.1"
 const frontendPort = Number(process.env.CLAW_FRONTEND_PORT || 3000)
 const command = process.argv[2] || "help"
+const gatewayOnly = process.argv.includes("--gateway-only") || process.env.CLAW_GATEWAY_ONLY === "1"
 
 export function parsePid(value) {
   const pid = Number.parseInt(String(value).trim(), 10)
@@ -164,30 +165,45 @@ async function maybeRelocate() {
   console.log(`Android Downloads is not a reliable executable directory. Copying to ${target}`)
   await rm(target, { recursive: true, force: true })
   await cp(projectDir, target, { recursive: true, filter: (source) => !source.includes("node_modules") && !source.includes("/.next") })
-  runChecked(process.execPath, [join(target, "gateway", "claw.mjs"), "install"], { cwd: target })
+  const args = [join(target, "gateway", "claw.mjs"), "install"]
+  if (gatewayOnly) args.push("--gateway-only")
+  runChecked(process.execPath, args, { cwd: target })
   return true
+}
+
+async function linkCli() {
+  if (!isTermux() || !process.env.PREFIX) {
+    runChecked("npm", ["link"], { cwd: gatewayDir })
+    return
+  }
+  const target = join(process.env.PREFIX, "bin", "claw")
+  await rm(target, { force: true })
+  await symlink(join(gatewayDir, "claw.mjs"), target)
 }
 
 async function install() {
   if (await maybeRelocate()) return
   await ensureState()
   if (isTermux()) runChecked("pkg", ["install", "-y", "nodejs-lts", "termux-api"])
-  runChecked("npm", ["install"])
   runChecked("npm", ["install"], { cwd: gatewayDir })
-  const cleanEnv = { ...process.env }
-  cleanEnv.NODE_OPTIONS = ""
-  cleanEnv.npm_config_node_options = ""
-  cleanEnv.NPM_CONFIG_NODE_OPTIONS = ""
-  runChecked(process.execPath, [join(projectDir, "node_modules", "next", "dist", "bin", "next"), "build"], { env: cleanEnv })
-  runChecked("npm", ["link"], { cwd: gatewayDir })
+  if (!gatewayOnly) {
+    runChecked("npm", ["install"])
+    const cleanEnv = { ...process.env }
+    delete cleanEnv.NODE_OPTIONS
+    delete cleanEnv.npm_config_node_options
+    delete cleanEnv.NPM_CONFIG_NODE_OPTIONS
+    runChecked(process.execPath, [join(projectDir, "node_modules", "next", "dist", "bin", "next"), "build"], { env: cleanEnv })
+  }
+  await chmod(join(gatewayDir, "claw.mjs"), 0o700)
+  await linkCli()
 
   const bootDir = join(homedir(), ".termux", "boot")
   const bootFile = join(bootDir, "claw-bridge")
   await mkdir(bootDir, { recursive: true })
-  await writeFile(bootFile, "#!/data/data/com.termux/files/usr/bin/bash\ntermux-wake-lock 2>/dev/null || true\nclaw up >> \"$HOME/.openclaw/logs/boot.log\" 2>&1\n", { mode: 0o700 })
-  await chmod(join(gatewayDir, "claw.mjs"), 0o755)
+  const bootCommand = gatewayOnly ? "claw up --gateway-only" : "claw up"
+  await writeFile(bootFile, `#!/data/data/com.termux/files/usr/bin/bash\ntermux-wake-lock 2>/dev/null || true\n${bootCommand} >> "$HOME/.openclaw/logs/boot.log" 2>&1\n`, { mode: 0o700 })
   console.log("CLAW Bridge installed.")
-  console.log("Run: claw up")
+  console.log(`Run: ${bootCommand}`)
 }
 
 async function up() {
@@ -199,12 +215,18 @@ async function up() {
     script: join(gatewayDir, "server.mjs"), env: { CLAW_HOST: gatewayHost, CLAW_PORT: String(gatewayPort) },
     port: gatewayPort, healthUrl: `http://127.0.0.1:${gatewayPort}/health`,
   })
+  console.log(`Gateway ${gateway.alreadyRunning ? "already running" : "started"} (PID ${gateway.pid})`)
+  if (gatewayOnly) {
+    console.log(`Gateway: ws://127.0.0.1:${gatewayPort}`)
+    console.log("APK mode: the frontend runs inside CLAW Bridge.")
+    console.log("Pairing token: claw pair")
+    return
+  }
   const frontend = await startService({
     name: "frontend", pidFile: frontendPidFile, logFile: frontendLog,
     script: join(gatewayDir, "static-server.mjs"), env: { CLAW_FRONTEND_HOST: frontendHost, CLAW_FRONTEND_PORT: String(frontendPort) },
     port: frontendPort, healthUrl: `http://127.0.0.1:${frontendPort}/health`,
   })
-  console.log(`Gateway ${gateway.alreadyRunning ? "already running" : "started"} (PID ${gateway.pid})`)
   console.log(`Frontend ${frontend.alreadyRunning ? "already running" : "started"} (PID ${frontend.pid})`)
   console.log(`Open: http://127.0.0.1:${frontendPort}/pair/`)
   console.log("Pairing token: claw pair")
@@ -222,7 +244,7 @@ async function status() {
   await ensureState()
   const services = [
     { name: "gateway", pidFile: gatewayPidFile, port: gatewayPort, log: gatewayLog, url: `http://127.0.0.1:${gatewayPort}/health` },
-    { name: "frontend", pidFile: frontendPidFile, port: frontendPort, log: frontendLog, url: `http://127.0.0.1:${frontendPort}/health` },
+    ...(!gatewayOnly ? [{ name: "frontend", pidFile: frontendPidFile, port: frontendPort, log: frontendLog, url: `http://127.0.0.1:${frontendPort}/health` }] : []),
   ]
   let failed = false
   for (const service of services) {
@@ -287,6 +309,7 @@ async function main() {
     case "rotate-token": await rotateToken(); break
     default:
       console.log("Usage: claw <install|up|down|restart|status|logs|pair|rotate-token>")
+      console.log("       claw install|up|status [--gateway-only]  # APK mode")
       console.log("       claw logs [gateway|frontend] [-f]")
   }
 }
