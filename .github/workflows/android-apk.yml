@@ -1,0 +1,45 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - name: Install dependencies
+        run: npm ci
+      - name: Test gateway
+        run: npm --prefix gateway ci && npm --prefix gateway test
+      - name: TypeScript check
+        run: npx tsc --noEmit
+      - name: Build and sync Android
+        run: npm run android:sync
+        env:
+          NODE_OPTIONS: ""
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Upload CLAW Bridge APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: claw-bridge-v0.3-android-beta
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

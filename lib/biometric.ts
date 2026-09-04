@@ -32,7 +32,7 @@ export async function registerBiometric() {
     publicKey: {
       challenge: bytes(),
       rp: { name: "CLAW Bridge" },
-      user: { id: bytes(16), name: "openclaw-owner", displayName: "OpenClaw owner" },
+      user: { id: bytes(16), name: "claw-bridge-owner", displayName: "CLAW Bridge owner" },
       pubKeyCredParams: [
         { type: "public-key", alg: -7 },
         { type: "public-key", alg: -257 },

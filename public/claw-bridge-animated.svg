@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Animeeritud CLAW Bridge logo">
+  <style>
+    .claw-l{animation:left .7s cubic-bezier(.2,.8,.2,1) 1;transform-origin:138px 212px}.claw-r{animation:right .7s cubic-bezier(.2,.8,.2,1) 1;transform-origin:374px 212px}.bridge{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .55s ease-out .35s forwards}.prompt{opacity:0;animation:show .2s ease-out .75s forwards}.cursor{animation:blink .85s step-end .95s infinite}@keyframes left{0%{transform:rotate(-20deg)}55%{transform:rotate(9deg)}100%{transform:rotate(0)}}@keyframes right{0%{transform:rotate(20deg)}55%{transform:rotate(-9deg)}100%{transform:rotate(0)}}@keyframes draw{to{stroke-dashoffset:0}}@keyframes show{to{opacity:1}}@keyframes blink{50%{opacity:.2}}@media(prefers-reduced-motion:reduce){*{animation:none!important}.bridge{stroke-dashoffset:0}.prompt{opacity:1}}
+  </style>
+  <rect width="512" height="512" rx="116" fill="#090b0d"/>
+  <g fill="#ef3d45" stroke="#ef3d45" stroke-linecap="round" stroke-linejoin="round">
+    <g class="claw-l"><path d="M131 171c-52-15-83 5-87 39 30-11 52-2 63 18-36 4-56 25-51 58 47-2 79-28 92-72z"/><path d="m143 213 52 41" fill="none" stroke-width="20"/></g>
+    <g class="claw-r"><path d="M381 171c52-15 83 5 87 39-30-11-52-2-63 18 36 4 56 25 51 58-47-2-79-28-92-72z"/><path d="m369 213-52 41" fill="none" stroke-width="20"/></g>
+    <path d="M151 243c13-65 53-100 105-100s92 35 105 100v87c-25 28-60 43-105 43s-80-15-105-43z"/><path d="m159 286-51 38m57-6-39 61m227-93 51 38m-57-6 39 61" fill="none" stroke-width="18"/>
+  </g>
+  <circle cx="216" cy="209" r="11" fill="#090b0d"/><circle cx="296" cy="209" r="11" fill="#090b0d"/>
+  <path class="bridge" pathLength="1" d="M149 331c24-58 60-86 107-86s83 28 107 86" fill="none" stroke="#fff" stroke-width="17" stroke-linecap="round"/>
+  <path class="prompt" d="m216 284 32 24-32 24" fill="none" stroke="#fff" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path class="cursor" d="M263 332h49" fill="none" stroke="#7cff6b" stroke-width="15" stroke-linecap="round"/>
+</svg>

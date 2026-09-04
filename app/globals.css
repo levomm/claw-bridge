@@ -161,3 +161,45 @@
     @apply bg-background text-foreground;
   }
 }
+
+.claw-launch {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  background: #090b0d;
+  color: #fff;
+  animation: claw-launch-exit 220ms ease-in 1.48s forwards;
+}
+
+.claw-launch__mark { width: min(52vw, 210px); filter: drop-shadow(0 20px 40px rgb(0 0 0 / 55%)); }
+.claw-launch__mark svg { display: block; width: 100%; overflow: visible; }
+.claw-launch__crab { fill: #ef3d45; stroke: #ef3d45; stroke-linecap: round; stroke-linejoin: round; }
+.claw-launch__limb { fill: none; stroke-width: 9; }
+.claw-launch__eye { fill: #090b0d; stroke: none; }
+.claw-launch__left-claw { transform-origin: 64px 100px; animation: claw-left 680ms cubic-bezier(.2,.8,.2,1); }
+.claw-launch__right-claw { transform-origin: 176px 100px; animation: claw-right 680ms cubic-bezier(.2,.8,.2,1); }
+.claw-launch__bridge { fill: none; stroke: #fff; stroke-width: 8; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: claw-draw 480ms ease-out 330ms forwards; }
+.claw-launch__prompt { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; animation: claw-show 180ms ease-out 720ms forwards; }
+.claw-launch__cursor { fill: none; stroke: #7cff6b; stroke-width: 7; stroke-linecap: round; animation: claw-blink 680ms step-end 900ms infinite; }
+.claw-launch__name { margin-top: 18px; font: 700 17px/1 var(--font-geist-sans); letter-spacing: .2em; }
+.claw-launch__name span { color: #aeb5bd; }
+.claw-launch__version { margin-top: 9px; color: #6d747d; font: 500 11px/1 var(--font-geist-mono); letter-spacing: .12em; text-transform: uppercase; }
+
+@keyframes claw-left { 0% { transform: rotate(-22deg); } 55% { transform: rotate(10deg); } 100% { transform: rotate(0); } }
+@keyframes claw-right { 0% { transform: rotate(22deg); } 55% { transform: rotate(-10deg); } 100% { transform: rotate(0); } }
+@keyframes claw-draw { to { stroke-dashoffset: 0; } }
+@keyframes claw-show { to { opacity: 1; } }
+@keyframes claw-blink { 50% { opacity: .18; } }
+@keyframes claw-launch-exit { to { opacity: 0; visibility: hidden; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .claw-launch { animation-duration: 80ms; animation-delay: 250ms; }
+  .claw-launch__left-claw,
+  .claw-launch__right-claw,
+  .claw-launch__cursor { animation: none; }
+  .claw-launch__bridge { animation: none; stroke-dashoffset: 0; }
+  .claw-launch__prompt { animation: none; opacity: 1; }
+}

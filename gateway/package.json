@@ -1,11 +1,11 @@
 {
-  "name": "openclaw-gateway",
-  "version": "0.2.0",
+  "name": "claw-bridge-gateway",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test server.test.mjs"
+    "test": "node --test *.test.mjs"
   },
   "bin": {
     "claw": "claw.mjs"

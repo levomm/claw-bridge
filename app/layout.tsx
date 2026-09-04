@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { BridgeProvider } from "@/components/providers/bridge-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { BiometricGate } from "@/components/biometric-gate"
+import { LaunchSplash } from "@/components/launch-splash"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -53,6 +54,7 @@ export default function RootLayout({
   return (
     <html lang="et" className={`dark bg-background ${geistSans.variable} ${geistMono.variable}`}>
       <body className="min-h-dvh font-sans antialiased">
+        <LaunchSplash />
         <BridgeProvider>
           <BiometricGate>{children}</BiometricGate>
           <Toaster position="top-center" offset="calc(env(safe-area-inset-top) + 12px)" />

@@ -7,9 +7,9 @@ import { join, resolve } from "node:path"
 import { spawn } from "node:child_process"
 import { WebSocketServer, WebSocket } from "ws"
 
-const VERSION = "0.2.0"
+const VERSION = "0.3.0"
 const PORT = Number(process.env.CLAW_PORT || 8787)
-const HOST = process.env.CLAW_HOST || "0.0.0.0"
+const HOST = process.env.CLAW_HOST || "127.0.0.1"
 const DATA_DIR = process.env.CLAW_DATA_DIR || join(homedir(), ".openclaw")
 const TOKEN_FILE = join(DATA_DIR, "token")
 const AUDIT_FILE = join(DATA_DIR, "audit.json")
@@ -97,7 +97,7 @@ async function status() {
   const shizuku = (await capture("sh", ["-c", "ps -A 2>/dev/null | grep -qi shizuku && echo yes"])) === "yes"
   return {
     gateway: "online",
-    gatewayName: process.env.CLAW_NAME || hostname() || "openclaw-termux",
+    gatewayName: process.env.CLAW_NAME || hostname() || "claw-bridge",
     version: VERSION,
     uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
     termux: platform() === "android" || process.env.PREFIX?.includes("com.termux") ? "online" : "degraded",
@@ -148,7 +148,7 @@ function buildCommand(input, target) {
   if (target === "codex") return { command: "codex", args: ["exec", input], display: `codex exec ${JSON.stringify(input)}` }
   if (target === "claude-code") return { command: "claude", args: ["-p", input], display: `claude -p ${JSON.stringify(input)}` }
   if (target === "auto") {
-    return { command: "sh", args: ["-c", `if command -v codex >/dev/null; then codex exec "$1"; elif command -v claude >/dev/null; then claude -p "$1"; else printf '%s\\n' 'No Codex or Claude CLI installed'; exit 127; fi`, "openclaw", input], display: input }
+    return { command: "sh", args: ["-c", `if command -v codex >/dev/null; then codex exec "$1"; elif command -v claude >/dev/null; then claude -p "$1"; else printf '%s\\n' 'No Codex or Claude CLI installed'; exit 127; fi`, "claw-bridge", input], display: input }
   }
   return { command: "sh", args: ["-c", input], display: input }
 }
@@ -339,7 +339,7 @@ wss.on("connection", (ws) => {
 
 setInterval(() => void broadcastStatus(), 5000).unref()
 server.listen(PORT, HOST, () => {
-  console.log(`OpenClaw Gateway v${VERSION}`)
+  console.log(`CLAW Bridge Gateway v${VERSION}`)
   console.log(`Listening on ws://${HOST}:${PORT}`)
   console.log("Run `claw pair` in another session to view pairing details.")
 })

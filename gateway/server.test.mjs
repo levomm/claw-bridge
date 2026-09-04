@@ -61,11 +61,11 @@ test("streams an authenticated shell run", async () => {
     type: "request",
     id: "run-request",
     method: "run.start",
-    params: { channel: "run-test", input: "printf openclaw-ok", target: "termux", permissionMode: "allow-once" },
+    params: { channel: "run-test", input: "printf claw-bridge-ok", target: "termux", permissionMode: "allow-once" },
   }))
   await new Promise((resolve) => setTimeout(resolve, 300))
   const events = messages.filter((item) => item.type === "event" && item.event === "run" && item.channel === "run-test")
-  assert.ok(events.some((item) => item.data.type === "stdout" && item.data.text.includes("openclaw-ok")), JSON.stringify(messages))
+  assert.ok(events.some((item) => item.data.type === "stdout" && item.data.text.includes("claw-bridge-ok")), JSON.stringify(messages))
   assert.ok(events.some((item) => item.data.type === "done"), JSON.stringify(messages))
   ws.close()
 })

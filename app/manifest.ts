@@ -1,12 +1,14 @@
 import type { MetadataRoute } from "next"
 
+export const dynamic = "force-static"
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "CLAW Bridge",
     short_name: "CLAW",
     description: "Control your local Termux agent from Android.",
     id: "/",
-    start_url: "/dashboard",
+    start_url: "/",
     scope: "/",
     display: "standalone",
     orientation: "portrait",
@@ -20,9 +22,9 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
-      { name: "New command", url: "/command", icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }] },
-      { name: "Terminal", url: "/terminal", icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }] },
-      { name: "Approvals", url: "/approvals", icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }] },
+      { name: "New command", url: "/command" },
+      { name: "Terminal", url: "/terminal" },
+      { name: "Approvals", url: "/approvals" },
     ],
   }
 }

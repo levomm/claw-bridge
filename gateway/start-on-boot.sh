@@ -1,4 +1,3 @@
 #!/data/data/com.termux/files/usr/bin/bash
-termux-wake-lock
-cd "$(dirname "$(readlink -f "$(command -v claw)")")" 2>/dev/null || exit 1
-nohup claw start >> "$HOME/.openclaw/gateway.log" 2>&1 &
+termux-wake-lock 2>/dev/null || true
+claw up >> "$HOME/.openclaw/logs/boot.log" 2>&1

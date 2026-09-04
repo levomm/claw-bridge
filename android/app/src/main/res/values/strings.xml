@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CLAW Bridge</string>
+    <string name="title_activity_main">CLAW Bridge</string>
+    <string name="package_name">ee.clawbridge.app</string>
+    <string name="custom_url_scheme">ee.clawbridge.app</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="144dp" android:height="144dp" android:viewportWidth="512" android:viewportHeight="512">
+    <group android:name="left_claw" android:pivotX="138" android:pivotY="212"><path android:fillColor="#EF3D45" android:pathData="M131,171c-52,-15 -83,5 -87,39 30,-11 52,-2 63,18 -36,4 -56,25 -51,58 47,-2 79,-28 92,-72z"/><path android:strokeColor="#EF3D45" android:strokeWidth="20" android:strokeLineCap="round" android:pathData="M143,213 L195,254"/></group>
+    <group android:name="right_claw" android:pivotX="374" android:pivotY="212"><path android:fillColor="#EF3D45" android:pathData="M381,171c52,-15 83,5 87,39 -30,-11 -52,-2 -63,18 36,4 56,25 51,58 -47,-2 -79,-28 -92,-72z"/><path android:strokeColor="#EF3D45" android:strokeWidth="20" android:strokeLineCap="round" android:pathData="M369,213 L317,254"/></group>
+    <path android:fillColor="#EF3D45" android:pathData="M151,243c13,-65 53,-100 105,-100s92,35 105,100v87c-25,28 -60,43 -105,43s-80,-15 -105,-43z"/>
+    <path android:strokeColor="#EF3D45" android:strokeWidth="18" android:strokeLineCap="round" android:pathData="M159,286 L108,324 M165,318 L126,379 M353,286 L404,324 M347,318 L386,379"/>
+    <path android:fillColor="#090B0D" android:pathData="M216,198a11,11 0,1 0,0 22a11,11 0,1 0,0 -22 M296,198a11,11 0,1 0,0 22a11,11 0,1 0,0 -22"/>
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="17" android:strokeLineCap="round" android:pathData="M149,331c24,-58 60,-86 107,-86s83,28 107,86"/>
+    <group android:name="prompt" android:alpha="0"><path android:strokeColor="#FFFFFF" android:strokeWidth="15" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M216,284 L248,308 L216,332"/></group>
+    <group android:name="cursor"><path android:strokeColor="#7CFF6B" android:strokeWidth="15" android:strokeLineCap="round" android:pathData="M263,332 L312,332"/></group>
+</vector>
