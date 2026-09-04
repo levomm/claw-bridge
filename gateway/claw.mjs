@@ -178,7 +178,7 @@ async function install() {
   cleanEnv.NODE_OPTIONS = ""
   cleanEnv.npm_config_node_options = ""
   cleanEnv.NPM_CONFIG_NODE_OPTIONS = ""
-  runChecked("npm", ["--node-options=", "run", "build"], { env: cleanEnv })
+  runChecked(process.execPath, [join(projectDir, "node_modules", "next", "dist", "bin", "next"), "build"], { env: cleanEnv })
   runChecked("npm", ["link"], { cwd: gatewayDir })
 
   const bootDir = join(homedir(), ".termux", "boot")
