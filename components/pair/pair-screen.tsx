@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { Capacitor } from "@capacitor/core"
 import { useRouter } from "next/navigation"
 import { CheckCircle2Icon, CircleAlertIcon, LinkIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
@@ -25,7 +26,9 @@ export function PairScreen() {
   const [gatewayName, setGatewayName] = React.useState("")
 
   React.useEffect(() => {
-    if (hydrated && settings.gatewayUrl && !url) setUrl(settings.gatewayUrl)
+    if (!hydrated || url) return
+    if (settings.gatewayUrl) setUrl(settings.gatewayUrl)
+    else if (Capacitor.isNativePlatform()) setUrl("ws://127.0.0.1:8787")
   }, [hydrated, settings.gatewayUrl, url])
 
   const urlInvalid = url.length > 0 && !/^(https?|wss?):\/\/.+/i.test(url)
