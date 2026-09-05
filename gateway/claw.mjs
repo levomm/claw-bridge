@@ -21,6 +21,8 @@ const gatewayLog = join(logDir, "gateway.log")
 const frontendLog = join(logDir, "frontend.log")
 const gatewayHost = process.env.CLAW_HOST || "127.0.0.1"
 const gatewayPort = Number(process.env.CLAW_PORT || 8787)
+const ipv4ProxyPort = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
+const ipv4ProxyEnabled = process.env.CLAW_IPV4_PROXY !== "0"
 const frontendHost = process.env.CLAW_FRONTEND_HOST || "127.0.0.1"
 const frontendPort = Number(process.env.CLAW_FRONTEND_PORT || 3000)
 const command = process.argv[2] || "help"
@@ -118,10 +120,13 @@ async function waitForHealth(url, timeout = 15000) {
   return false
 }
 
-async function startService({ name, pidFile, logFile, script, env, port, healthUrl }) {
+async function startService({ name, pidFile, logFile, script, env, port, healthUrl, reservedPorts = [] }) {
   const existing = await livePid(pidFile)
   if (existing) return { name, pid: existing, alreadyRunning: true, healthy: await health(healthUrl) }
   if (await portInUse(port)) throw new Error(`${name} port ${port} is already in use by another process`)
+  for (const reserved of reservedPorts) {
+    if (await portInUse(reserved.port)) throw new Error(`${reserved.name} port ${reserved.port} is already in use by another process`)
+  }
 
   const logHandle = await open(logFile, "a", 0o600)
   const child = spawn(process.execPath, [script], {
@@ -213,10 +218,13 @@ async function up() {
   if (isTermux()) spawnSync("termux-wake-lock", [], { stdio: "ignore" })
   const gateway = await startService({
     name: "gateway", pidFile: gatewayPidFile, logFile: gatewayLog,
-    script: join(gatewayDir, "server.mjs"), env: { CLAW_HOST: gatewayHost, CLAW_PORT: String(gatewayPort) },
+    script: join(gatewayDir, "server.mjs"),
+    env: { CLAW_HOST: gatewayHost, CLAW_PORT: String(gatewayPort), CLAW_IPV4_PROXY_PORT: String(ipv4ProxyPort) },
     port: gatewayPort, healthUrl: `http://127.0.0.1:${gatewayPort}/health`,
+    reservedPorts: ipv4ProxyEnabled ? [{ name: "IPv4 agent proxy", port: ipv4ProxyPort }] : [],
   })
   console.log(`Gateway ${gateway.alreadyRunning ? "already running" : "started"} (PID ${gateway.pid})`)
+  if (ipv4ProxyEnabled) console.log(`Codex/Claude IPv4 fallback: http://127.0.0.1:${ipv4ProxyPort}`)
   if (gatewayOnly) {
     console.log(`Gateway: ws://127.0.0.1:${gatewayPort}`)
     console.log("APK mode: the frontend runs inside CLAW Bridge.")
@@ -254,6 +262,12 @@ async function status() {
     if (!healthy) failed = true
     console.log(`${service.name.padEnd(8)} ${healthy ? "HEALTHY" : pid ? "UNHEALTHY" : "STOPPED"}  PID ${pid || "-"}  port ${service.port}`)
     if (!healthy) console.log(`         log: ${service.log}`)
+  }
+  if (ipv4ProxyEnabled) {
+    const healthy = await health(`http://127.0.0.1:${ipv4ProxyPort}/health`)
+    if (!healthy) failed = true
+    console.log(`${"agent-ipv4".padEnd(8)} ${healthy ? "HEALTHY" : "UNHEALTHY"}  PID -  port ${ipv4ProxyPort}`)
+    if (!healthy) console.log(`         log: ${gatewayLog}`)
   }
   if (failed) process.exitCode = 1
 }
