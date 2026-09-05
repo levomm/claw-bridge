@@ -214,9 +214,21 @@ function emitTerminal(ws, channel, kind, text) {
 }
 
 async function changeDirectory(session, requested) {
-  const candidate = requested.startsWith("/") ? requested : resolve(session.cwd, requested || homedir())
+  const expanded = requested === "~" ? homedir() : requested.startsWith("~/") ? resolve(homedir(), requested.slice(2)) : requested
+  const candidate = expanded.startsWith("/") ? expanded : resolve(session.cwd, expanded || homedir())
   const canonical = await realpath(candidate)
   session.cwd = canonical
+}
+
+function simpleCdTarget(input) {
+  const match = input.match(/^cd(?:\s+(.+))?$/)
+  if (!match) return null
+  let requested = match[1]?.trim() || homedir()
+  if (/[;&|<>`$()\n]/.test(requested)) return null
+  if ((requested.startsWith('"') && requested.endsWith('"')) || (requested.startsWith("'") && requested.endsWith("'"))) {
+    requested = requested.slice(1, -1)
+  }
+  return requested
 }
 
 async function execTerminal(ws, params) {
@@ -231,8 +243,9 @@ async function execTerminal(ws, params) {
     emitTerminal(ws, channel, "system", "Session closed")
     return
   }
-  if (input === "cd" || input.startsWith("cd ")) {
-    await changeDirectory(session, input.slice(2).trim() || homedir())
+  const cdTarget = simpleCdTarget(input)
+  if (cdTarget !== null) {
+    await changeDirectory(session, cdTarget)
     emitTerminal(ws, channel, "system", session.cwd)
     return
   }
