@@ -53,6 +53,30 @@ test("creates and lists a terminal session", async () => {
   ws.close()
 })
 
+test("terminal executes compound commands beginning with cd", async () => {
+  const { ws } = await connect()
+  const messages = []
+  ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())))
+  ws.send(JSON.stringify({ type: "request", id: "create-compound", method: "terminal.create", params: { name: "compound" } }))
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  const sessionId = messages.find((item) => item.id === "create-compound")?.result?.id
+  assert.ok(sessionId)
+  ws.send(JSON.stringify({
+    type: "request",
+    id: "exec-compound",
+    method: "terminal.exec",
+    params: { sessionId, channel: "terminal-compound", command: "cd ~ && printf compound-ok" },
+  }))
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  const output = messages
+    .filter((item) => item.type === "event" && item.event === "terminal" && item.channel === "terminal-compound")
+    .map((item) => item.data.text)
+    .join("")
+  assert.match(output, /compound-ok/)
+  assert.equal(messages.find((item) => item.id === "exec-compound")?.ok, true)
+  ws.close()
+})
+
 test("streams an authenticated shell run", async () => {
   const { ws } = await connect()
   const messages = []
