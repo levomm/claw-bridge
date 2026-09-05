@@ -5,11 +5,17 @@ import { constants } from "node:fs"
 import { homedir, hostname, platform, release } from "node:os"
 import { join, resolve } from "node:path"
 import { spawn } from "node:child_process"
+import { lookup } from "node:dns/promises"
+import { connect as connectTcp } from "node:net"
 import { WebSocketServer, WebSocket } from "ws"
 
 const VERSION = "0.3.0"
 const PORT = Number(process.env.CLAW_PORT || 8787)
 const HOST = process.env.CLAW_HOST || "127.0.0.1"
+const IPV4_PROXY_PORT = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
+const IPV4_PROXY_HOST = "127.0.0.1"
+const IPV4_PROXY_URL = `http://${IPV4_PROXY_HOST}:${IPV4_PROXY_PORT}`
+const IPV4_PROXY_ENABLED = process.env.CLAW_IPV4_PROXY !== "0"
 const DATA_DIR = process.env.CLAW_DATA_DIR || join(homedir(), ".openclaw")
 const TOKEN_FILE = join(DATA_DIR, "token")
 const AUDIT_FILE = join(DATA_DIR, "audit.json")
@@ -24,6 +30,7 @@ const allowedRules = new Set()
 const sessions = new Map()
 const runs = new Map()
 const clients = new Set()
+const proxyDomainSuffixes = ["openai.com", "chatgpt.com", "oaiusercontent.com", "oaistatic.com", "anthropic.com", "claude.ai"]
 
 function now() {
   return new Date().toISOString()
@@ -154,6 +161,31 @@ function buildCommand(input, target) {
   return { command: "sh", args: ["-c", input], display: input }
 }
 
+function proxyHostAllowed(host) {
+  const normalized = String(host).toLowerCase().replace(/\.$/, "")
+  return proxyDomainSuffixes.some((suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`))
+}
+
+function agentEnvironment() {
+  if (!IPV4_PROXY_ENABLED) return process.env
+  const bypass = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost", "::1"]
+    .filter(Boolean)
+    .join(",")
+  return {
+    ...process.env,
+    HTTP_PROXY: IPV4_PROXY_URL,
+    HTTPS_PROXY: IPV4_PROXY_URL,
+    http_proxy: IPV4_PROXY_URL,
+    https_proxy: IPV4_PROXY_URL,
+    NO_PROXY: bypass,
+    no_proxy: bypass,
+  }
+}
+
+function commandUsesAgent(input) {
+  return /(?:^|&&\s*|\|\|\s*|[;|]\s*)(?:env\s+(?:-\S+\s+)*)?(?:command\s+)?(?:\S*\/)?(?:codex|claude)(?:\s|$)/.test(String(input))
+}
+
 function emitRun(ws, channel, type, text) {
   send(ws, { type: "event", event: "run", channel, data: { id: id("evt"), type, text, ts: now() } })
 }
@@ -192,7 +224,7 @@ async function startRun(ws, params) {
   emitRun(ws, channel, "status", `Starting ${target}`)
   const child = spawn(spec.command, spec.args, {
     cwd: process.env.CLAW_PROJECT || homedir(),
-    env: process.env,
+    env: target === "codex" || target === "claude-code" || target === "auto" ? agentEnvironment() : process.env,
     stdio: ["ignore", "pipe", "pipe"],
   })
   runs.set(channel, child)
@@ -250,7 +282,11 @@ async function execTerminal(ws, params) {
     return
   }
   await new Promise((resolveExec) => {
-    const child = spawn("sh", ["-c", input], { cwd: session.cwd, env: process.env, stdio: ["ignore", "pipe", "pipe"] })
+    const child = spawn("sh", ["-c", input], {
+      cwd: session.cwd,
+      env: commandUsesAgent(input) ? agentEnvironment() : process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
     child.stdout.on("data", (chunk) => emitTerminal(ws, channel, "output", chunk.toString()))
     child.stderr.on("data", (chunk) => emitTerminal(ws, channel, "error", chunk.toString()))
     child.on("error", (error) => {
@@ -313,6 +349,68 @@ const server = createServer((request, response) => {
   response.writeHead(404).end()
 })
 
+function connectFirstIpv4(addresses, port) {
+  return new Promise((resolveSocket, reject) => {
+    let index = 0
+    let lastError = new Error("No IPv4 address available")
+    const attempt = () => {
+      if (index >= addresses.length) {
+        reject(lastError)
+        return
+      }
+      const socket = connectTcp({ host: addresses[index++], port })
+      const onError = (error) => {
+        lastError = error
+        socket.destroy()
+        attempt()
+      }
+      socket.setTimeout(10_000)
+      socket.once("connect", () => {
+        socket.removeListener("error", onError)
+        socket.setTimeout(0)
+        resolveSocket(socket)
+      })
+      socket.once("timeout", () => socket.destroy(new Error("IPv4 upstream connection timed out")))
+      socket.once("error", onError)
+    }
+    attempt()
+  })
+}
+
+const ipv4Proxy = createServer((request, response) => {
+  if (request.url === "/health") {
+    response.writeHead(200, { "content-type": "application/json" })
+    response.end(JSON.stringify({ ok: true, family: 4 }))
+    return
+  }
+  response.writeHead(405, { "content-type": "text/plain" })
+  response.end("HTTPS CONNECT only\n")
+})
+
+ipv4Proxy.on("connect", async (request, clientSocket, head) => {
+  const authority = String(request.url || "")
+  const separator = authority.lastIndexOf(":")
+  const host = separator > 0 ? authority.slice(0, separator) : ""
+  const port = Number(authority.slice(separator + 1))
+  if (!host || port !== 443 || !proxyHostAllowed(host)) {
+    clientSocket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n")
+    return
+  }
+  try {
+    const records = await lookup(host, { family: 4, all: true })
+    const addresses = [...new Set(records.map((record) => record.address))]
+    const upstream = await connectFirstIpv4(addresses, port)
+    clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n")
+    if (head.length) upstream.write(head)
+    upstream.on("error", () => clientSocket.destroy())
+    clientSocket.on("error", () => upstream.destroy())
+    clientSocket.pipe(upstream)
+    upstream.pipe(clientSocket)
+  } catch {
+    clientSocket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+  }
+})
+
 const wss = new WebSocketServer({ server, maxPayload: 1024 * 1024 })
 wss.on("connection", (ws) => {
   let authenticated = false
@@ -352,6 +450,11 @@ wss.on("connection", (ws) => {
 })
 
 setInterval(() => void broadcastStatus(), 5000).unref()
+if (IPV4_PROXY_ENABLED) {
+  ipv4Proxy.listen(IPV4_PROXY_PORT, IPV4_PROXY_HOST, () => {
+    console.log(`IPv4 agent proxy listening on ${IPV4_PROXY_URL}`)
+  })
+}
 server.listen(PORT, HOST, () => {
   console.log(`CLAW Bridge Gateway v${VERSION}`)
   console.log(`Listening on ws://${HOST}:${PORT}`)
