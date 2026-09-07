@@ -42,6 +42,8 @@ val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") 
         include("server.mjs")
         include("host-mcp.mjs")
         include("claw-tool.mjs")
+        include("telegram-bridge.mjs")
+        include("service-runner.mjs")
         include("package.json")
         include("package-lock.json")
         include("node_modules/ws/**")
@@ -51,8 +53,10 @@ val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") 
         check(clawGatewaySourceDir.file("node_modules/ws/package.json").asFile.isFile) {
             "Run `npm --prefix gateway ci` before building the native APK."
         }
-        check(clawGatewaySourceDir.file("claw-tool.mjs").asFile.isFile) {
-            "CLAW remote tool bridge is missing."
+        listOf("claw-tool.mjs", "telegram-bridge.mjs", "service-runner.mjs").forEach { fileName ->
+            check(clawGatewaySourceDir.file(fileName).asFile.isFile) {
+                "CLAW gateway asset is missing: $fileName"
+            }
         }
     }
 }
