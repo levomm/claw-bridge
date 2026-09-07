@@ -9,7 +9,7 @@ import { lookup } from "node:dns/promises"
 import { connect as connectTcp } from "node:net"
 import { WebSocketServer, WebSocket } from "ws"
 
-const VERSION = "0.3.0"
+const VERSION = "0.4.0"
 const PORT = Number(process.env.CLAW_PORT || 8787)
 const HOST = process.env.CLAW_HOST || "127.0.0.1"
 const IPV4_PROXY_PORT = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
