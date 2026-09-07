@@ -72,6 +72,7 @@ class GatewayService : Service() {
                     put("CLAW_IPV4_PROXY_PORT", "8788")
                     put("CLAW_DATA_DIR", "/root/.openclaw")
                     put("CLAW_PROJECT", "/workspace")
+                    put("CLAW_APPROVAL_DIR", "/pocket-bridge")
 
                     if (preferences.windowsHostUrl.isNotBlank()) {
                         put("CLAW_WINDOWS_URL", preferences.windowsHostUrl)
@@ -99,7 +100,7 @@ class GatewayService : Service() {
                     rootfs = runtime.rootfs,
                     workspace = workspace,
                     environment = environment,
-                    guestCommand = listOf("/usr/bin/env", "node", "/opt/claw-gateway/server.mjs"),
+                    guestCommand = listOf("/usr/bin/env", "node", "/opt/claw-gateway/service-runner.mjs"),
                 )
             }.onSuccess { process ->
                 GatewayProcessController.process = process
