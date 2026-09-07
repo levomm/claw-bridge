@@ -3,6 +3,8 @@ package com.jarves.mh.runtime
 import android.content.Context
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.jarves.mh.data.ApiKeyVault
+import com.jarves.mh.data.AppPreferences
 import com.jarves.mh.model.ChatMessage
 import com.jarves.mh.model.ChangeItem
 import com.jarves.mh.model.DiffLine
@@ -128,6 +130,7 @@ class ClaudeRuntimeBridge(
             val installed = installer.installedRuntime()
             installer.ensureSettingsAndHooks()
             val workspace = ensureWorkspace(projectId)
+            ensureWindowsMcpConfig(workspace)
             createCheckpoint(projectId, workspace)
             val before = snapshot(workspace)
             formatGateway = if (provider.kind.protocol in setOf(
@@ -135,8 +138,18 @@ class ClaudeRuntimeBridge(
                     com.jarves.mh.model.ProviderProtocol.OPENAI_RESPONSES,
                 )) LocalFormatGateway(provider, secret).start() else null
             val launch = RuntimeLaunchConfigBuilder.build(provider, authToken = secret, localGatewayUrl = formatGateway?.url)
+            val preferences = AppPreferences(context)
+            val windowsToken = ApiKeyVault(context).get(GatewayService.WINDOWS_HOST_TOKEN_KEY).orEmpty()
+            val launchEnvironment = buildMap {
+                putAll(launch.environment)
+                if (preferences.windowsHostUrl.isNotBlank() && windowsToken.isNotBlank()) {
+                    put("CLAW_WINDOWS_URL", preferences.windowsHostUrl)
+                    put("CLAW_WINDOWS_TOKEN", windowsToken)
+                    put("CLAW_APPROVAL_DIR", "/pocket-bridge")
+                }
+            }
             Log.d("ClaudeBridge", "Provider: ${provider.kind}, Model: ${provider.model}, BaseUrl: ${provider.baseUrl}")
-            Log.d("ClaudeBridge", "Launch environment keys: ${launch.environment.keys}")
+            Log.d("ClaudeBridge", "Launch environment keys: ${launchEnvironment.keys}")
 
             // Build a context-aware prompt that includes conversation history
             val guestWorkspacePath = "/workspace/$projectSlug"
@@ -152,7 +165,7 @@ class ClaudeRuntimeBridge(
                 add("--include-partial-messages")
                 add("--verbose")
                 add("--model")
-                add(launch.environment["ANTHROPIC_MODEL"] ?: provider.model)
+                add(launchEnvironment["ANTHROPIC_MODEL"] ?: provider.model)
                 add("--max-turns")
                 add("25")
             }
@@ -161,7 +174,7 @@ class ClaudeRuntimeBridge(
                 installed.proot,
                 installed.rootfs,
                 workspace,
-                launch.environment,
+                launchEnvironment,
                 command,
                 guestWorkspacePath = guestWorkspacePath,
             )
@@ -370,13 +383,32 @@ class ClaudeRuntimeBridge(
                         .ifBlank { command.orEmpty() }
                         .ifBlank { "$toolName running in project" }
 
-                    Log.d("ClaudeBridge", "Auto-approving permission request $approvalId for $toolName ($paths)")
                     val response = File(file.parentFile, "$approvalId.response")
-                    response.writeText("allow")
-
-                    eventBus.emit(RuntimeEvent.ToolCompleted(sessionId, toolName, explanation))
+                    file.delete()
+                    if (toolName.startsWith("Windows ")) {
+                        val request = ToolRequest(
+                            approvalId = approvalId,
+                            sessionId = sessionId,
+                            toolName = toolName,
+                            explanation = explanation,
+                            affectedPaths = paths,
+                            commandPreview = command,
+                            risk = if (
+                                toolName.contains("powershell", ignoreCase = true) ||
+                                toolName.contains("launch", ignoreCase = true) ||
+                                toolName.contains("capture", ignoreCase = true)
+                            ) RiskLevel.HIGH else RiskLevel.REVIEW,
+                        )
+                        pending[approvalId] = PendingPermission(request, response)
+                        eventBus.emit(RuntimeEvent.ToolRequested(sessionId, request))
+                    } else {
+                        Log.d("ClaudeBridge", "Auto-approving sandboxed request $approvalId for $toolName ($paths)")
+                        response.writeText("allow")
+                        eventBus.emit(RuntimeEvent.ToolCompleted(sessionId, toolName, explanation))
+                    }
                 }.onFailure {
-                    File(file.parentFile, "$approvalId.response").writeText("allow")
+                    File(file.parentFile, "$approvalId.response").writeText("deny")
+                    file.delete()
                 }
             }
             delay(50)
@@ -622,6 +654,7 @@ class ClaudeRuntimeBridge(
         sb.appendLine("The bundled Maven cache handles the base toolchain; Gradle may download project-specific libraries normally. Set android.useAndroidX=true for AndroidX or Compose projects.")
         sb.appendLine("PocketDev globally configures Gradle to use the SDK's ARM64 aapt2. Do not use the x86_64 Maven aapt2, investigate its architecture, or add android.aapt2FromMavenOverride to the project.")
         sb.appendLine("Use the installed `gradle` command for Android builds; do not ask the user to install Android Studio, an SDK, Gradle, ADB, or Termux.")
+        sb.appendLine("When Windows is paired, use the claw-windows MCP tools for Windows files, PowerShell, applications, browser, windows, and screenshots. High-impact or privacy-sensitive Windows actions require approval on the phone.")
         sb.appendLine("For local servers, give a clear start command and never use a kill command that searches its own command text with pgrep, because it can terminate the terminal itself.")
         sb.appendLine("</project_workspace>")
         sb.appendLine()
@@ -657,6 +690,21 @@ class ClaudeRuntimeBridge(
         val selected = File(base, rootPath).canonicalFile
         require(selected.toPath().startsWith(base.toPath())) { "Unsafe project root" }
         return selected.apply { mkdirs() }
+    }
+
+    private fun ensureWindowsMcpConfig(workspace: File) {
+        val configFile = File(workspace, ".mcp.json")
+        val config = runCatching { JSONObject(configFile.readText()) }.getOrElse { JSONObject() }
+        val servers = config.optJSONObject("mcpServers") ?: JSONObject()
+        servers.put(
+            "claw-windows",
+            JSONObject()
+                .put("type", "stdio")
+                .put("command", "node")
+                .put("args", JSONArray().put("/opt/claw-gateway/host-mcp.mjs")),
+        )
+        config.put("mcpServers", servers)
+        configFile.writeText(config.toString(2))
     }
 
     fun configureProjectRoot(projectId: String, rootPath: String) {
@@ -865,7 +913,7 @@ class ClaudeRuntimeBridge(
 
     private fun isInternalRuntimePath(path: String): Boolean {
         val normalized = path.replace('\\', '/')
-        return normalized == ".claude" || normalized == ".claude.json" || normalized.startsWith(".claude/")
+        return normalized == ".claude" || normalized == ".claude.json" || normalized == ".mcp.json" || normalized.startsWith(".claude/")
     }
 
     private fun digest(file: File): String {

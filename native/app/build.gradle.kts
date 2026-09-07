@@ -33,7 +33,7 @@ val runtimeBundleDir = rootProject.layout.projectDirectory.dir("dist/runtime-bun
 val generatedRuntimeAssets = layout.buildDirectory.dir("generated/runtime-assets")
 val clawGatewaySourceDir = rootProject.layout.projectDirectory.dir("../gateway")
 val generatedClawGatewayAssets = layout.buildDirectory.dir("generated/claw-gateway-assets")
-val clawGatewayVersion = "0.3.0"
+val clawGatewayVersion = "0.4.0"
 
 val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAssets") {
     from(
@@ -47,6 +47,7 @@ val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAss
 val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") {
     from(clawGatewaySourceDir) {
         include("server.mjs")
+        include("host-mcp.mjs")
         include("package.json")
         include("package-lock.json")
         include("node_modules/ws/**")

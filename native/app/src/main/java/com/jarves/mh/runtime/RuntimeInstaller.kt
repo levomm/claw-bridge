@@ -275,6 +275,7 @@ class RuntimeInstaller(private val context: Context) {
         staging.mkdirs()
         copyAssetTree("claw-gateway", staging)
         require(File(staging, "server.mjs").isFile) { "CLAW gateway asset is missing server.mjs" }
+        require(File(staging, "host-mcp.mjs").isFile) { "CLAW gateway asset is missing host-mcp.mjs" }
         require(File(staging, "node_modules/ws/package.json").isFile) { "CLAW gateway WebSocket dependency is missing" }
         File(staging, ".claw-gateway-version").writeText(BuildConfig.CLAW_GATEWAY_VERSION)
         clawGatewayDir.deleteRecursively()
