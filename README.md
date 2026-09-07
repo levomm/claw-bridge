@@ -1,32 +1,103 @@
-# CLAW Bridge
+<p align="center">
+  <img src="public/claw-bridge-animated.svg" width="180" alt="CLAW Bridge" />
+</p>
 
-Android-first local control panel for Codex, Claude Code and Termux. CLAW Bridge runs its lightweight WebSocket gateway directly in Termux and provides both an installable APK and a browser/PWA interface.
+<h1 align="center">CLAW Bridge</h1>
 
-> CLAW Bridge is an independent project. It is not an official OpenClaw release.
+<p align="center">
+  <strong>Phone-first AI control plane for ChatGPT/Codex, Claude Code, Linux, Windows, servers and Telegram.</strong><br />
+  Native Android runtime. Local approvals. Real tools. No Termux required for the native preview.
+</p>
 
-## Native runtime migration
+<p align="center"><sub>dev by osx01</sub></p>
 
-Development of the Termux-free native runtime happens on the
-`mobile-harness-integration` branch. The preview installs beside this beta and
-contains its own private Ubuntu PRoot environment, foreground runtime service,
-encrypted provider storage and on-device build tools. See
-[`docs/NATIVE_ARCHITECTURE.md`](docs/NATIVE_ARCHITECTURE.md) for the staged
-migration and security boundaries.
+---
 
-## What is included
+## What CLAW Bridge is
 
-- Token-authenticated local WebSocket gateway
-- Live Codex, Claude Code and shell output
-- Interactive Termux terminal
-- `Deny`, `Allow once` and `Always allow` approval flow
-- Biometric or device-lock gate through WebAuthn
-- One-command lifecycle management with PID files, health checks and logs
-- Animated red-crab launch screen and Android adaptive icon
-- Capacitor Android wrapper and GitHub Actions APK build
+CLAW Bridge turns an Android phone into an AI workspace and control surface. The native app owns a private Ubuntu PRoot runtime on-device, keeps agent actions behind an approval layer, and can extend into a paired Windows computer through CLAW Host.
 
-## Install in Termux
+The old Termux beta remains available during migration. The native preview installs side-by-side so we can verify the new stack on a real phone before replacing the existing app.
 
-Use the F-Droid builds of Termux, Termux:API and optionally Termux:Boot. Clone the project into Termux home, then run:
+## Native v0.5 preview
+
+The current `mobile-harness-integration` branch includes:
+
+- Native Android app and private Ubuntu/Linux PRoot runtime
+- CLAW Bridge launch branding and Android-native system typography
+- Home, Chat, Codex, Terminal and Connections surfaces
+- ChatGPT/Codex login through the Codex CLI device-auth flow
+- Claude subscription plus Anthropic, OpenRouter, DeepSeek, Kimi and custom providers
+- Projects, chats, files, project terminal, changes, preview and attachments
+- Approval-gated agent actions and audit-friendly runtime events
+- Local CLAW gateway on `127.0.0.1:8787`
+- Windows CLAW Host for PowerShell, files, browser automation and Windows UI Automation
+- SSH server connection testing
+- Telegram bot connection testing
+- Android build toolchains for web, Python, Android, C/C++ and PHP projects
+
+## Architecture
+
+```text
+Android
+┌───────────────────────────────────────────────┐
+│ CLAW Bridge                                   │
+│ Home · Chat · Codex · Terminal · Connections │
+│                 │                             │
+│        approvals / local gateway             │
+│                 │                             │
+│        private Ubuntu PRoot runtime           │
+│     Codex · Claude Code · shell · build tools │
+└───────────────────────────────────────────────┘
+                 │
+                 ├── Windows CLAW Host
+                 │   PowerShell · files · browser · UI automation
+                 │
+                 ├── SSH servers
+                 └── Telegram
+```
+
+See [`docs/NATIVE_ARCHITECTURE.md`](docs/NATIVE_ARCHITECTURE.md) for migration and security boundaries.
+
+## Native preview build
+
+Every push affecting `native/**` on `mobile-harness-integration` runs **Native Android APK**.
+
+The workflow runs unit tests, builds the online native preview, and uploads the APK as a GitHub Actions artifact.
+
+The native preview uses a separate package so it can be installed beside the current beta during verification.
+
+## Windows CLAW Host
+
+The Windows host is a separate companion service. It exposes only the tools configured by CLAW Bridge and keeps high-impact actions behind the phone approval model.
+
+Included host capabilities:
+
+- PowerShell
+- filesystem operations
+- browser automation
+- Windows UI Automation
+
+See [`host/README.md`](host/README.md).
+
+## ChatGPT / Codex auth
+
+The native preview uses the official Codex CLI login flow. In **Connections → ChatGPT / Codex OAuth**, the app starts Codex device authentication and keeps the resulting Codex session inside the private Linux runtime.
+
+For devices where browser callback auth is awkward, device auth avoids depending on a localhost browser callback inside Android.
+
+## Security model
+
+- The local gateway remains loopback-only by default.
+- Provider secrets are stored in Android secure storage where supported by the native provider layer.
+- High-impact tool requests require approval.
+- Windows computer actions go through the authenticated CLAW Host layer.
+- Project preview blocks external navigation and is intended for localhost development servers.
+- The Linux compatibility environment is useful isolation, but it is not marketed as a hardened hostile-code sandbox.
+
+## Legacy Termux beta
+
+The existing beta remains on `main` during native verification.
 
 ```bash
 git clone https://github.com/levomm/openclaw-2.git ~/CLAW-Bridge
@@ -36,64 +107,12 @@ claw up
 claw status
 ```
 
-Open [http://127.0.0.1:3000/pair/](http://127.0.0.1:3000/pair/) on the same phone. Show the local gateway URL and token with:
+Same-device gateway: `ws://127.0.0.1:8787`
 
-```bash
-claw pair
-```
+## Status
 
-The same-device gateway URL is `ws://127.0.0.1:8787`.
+`mobile-harness-integration` is the active native migration branch. CI builds are required to pass before a preview APK is treated as installable. Real-device verification is still required before replacing the production package.
 
-## CLI
+---
 
-```text
-claw install
-claw up
-claw down
-claw restart
-claw status
-claw logs [gateway|frontend] [-f]
-claw pair
-claw rotate-token
-```
-
-Runtime state is kept under `~/.openclaw/`. The gateway listens only on `127.0.0.1` by default. Set `CLAW_HOST=0.0.0.0` only when you intentionally need LAN access and understand that the token protects full shell access.
-
-## Android APK
-
-Every push to `main` runs the **Android APK** workflow. Open the latest successful workflow run, choose **Artifacts**, download `claw-bridge-v0.3-android-beta`, unzip it and install `app-debug.apk`.
-
-The beta APK contains the UI. The gateway still runs in Termux:
-
-```bash
-claw up
-```
-
-Pair the APK with `ws://127.0.0.1:8787` and the token printed by `claw pair`.
-
-## Local development
-
-```bash
-npm install
-npm --prefix gateway install
-npm --prefix gateway test
-npx tsc --noEmit
-env -u NODE_OPTIONS npm run build
-npx cap sync android
-```
-
-An Android build additionally needs Java 21 and the Android SDK:
-
-```bash
-cd android
-./gradlew assembleDebug
-```
-
-## Security
-
-- Pairing uses a random 192-bit token stored with mode `0600`.
-- The gateway uses constant-time token comparison.
-- Tokens are never printed by `claw up` or ordinary service logs.
-- Runtime directories and PID files use restrictive permissions.
-- Stale PID files and occupied ports are detected before startup.
-- Anyone holding the token can run shell commands. Do not expose port `8787` directly to the public internet.
+<p align="center"><strong>CLAW Bridge</strong><br /><sub>dev by osx01</sub></p>
