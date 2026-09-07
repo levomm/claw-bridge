@@ -33,6 +33,27 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Restore stable Android preview signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: claw-bridge-preview-debug-keystore-v1
+
+      - name: Ensure Android debug keystore exists
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=OSX01,C=EE"
+          fi
+
       - name: Install gateway dependencies
         run: npm --prefix gateway ci
 
@@ -52,7 +73,7 @@ jobs:
       - name: Upload native preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: claw-bridge-native-v0.5.0-alpha
+          name: claw-bridge-native-v0.5.1-alpha
           path: native/app/build/outputs/apk/online/debug/app-online-debug.apk
           if-no-files-found: error
           retention-days: 30
