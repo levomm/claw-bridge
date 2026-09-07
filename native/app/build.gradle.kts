@@ -66,8 +66,6 @@ fun buildConfigString(value: String): String =
 android {
     namespace = "com.jarves.mh"
     compileSdk = 36
-    // F-Droid's r26b recipe installs 26.1.10909125. Keep AGP from selecting
-    // its newer default NDK; local developers may override this explicitly.
     ndkVersion = providers.gradleProperty("mhNdkVersion").orNull ?: "26.1.10909125"
 
     signingConfigs {
@@ -82,17 +80,11 @@ android {
     }
 
     defaultConfig {
-        // Keep the native preview side-by-side with the current Capacitor beta.
-        // The final signed migration build will use ee.clawbridge.app.
         applicationId = "ee.clawbridge.app.nativebeta"
         minSdk = 28
-        // The direct APK retains the proven target-28 PRoot execution path. The
-        // Play build targets current Android while its runtime path is validated.
         targetSdk = if (playBuild) 36 else 28
-        // Keep literal defaults so F-Droid's static manifest parser can detect
-        // the tagged release. Gradle properties may still override Play builds.
-        versionCode = 5
-        versionName = "0.4.0-native-alpha"
+        versionCode = 6
+        versionName = "0.5.0-native-alpha"
         providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
 
@@ -104,12 +96,7 @@ android {
         buildConfigField("boolean", "IS_PLAY_BUILD", playBuild.toString())
         buildConfigField("String", "PRIVACY_POLICY_URL", buildConfigString(privacyPolicyUrl))
         buildConfigField("String", "CLAW_GATEWAY_VERSION", buildConfigString(clawGatewayVersion))
-
-        buildConfigField(
-            "String",
-            "TEST_OPENROUTER_API_KEY",
-            "\"\"",
-        )
+        buildConfigField("String", "TEST_OPENROUTER_API_KEY", "\"\"")
     }
 
     flavorDimensions += "runtimeDelivery"
@@ -157,7 +144,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions.jvmTarget = "17"
+    kotlinOptions {
+        jvmTarget = "17"
+        freeCompilerArgs += "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api"
+    }
     buildFeatures {
         compose = true
         buildConfig = true
