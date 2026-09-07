@@ -10,6 +10,18 @@ const SERVER_USER = process.env.CLAW_SERVER_USER || ""
 const SERVER_PORT = Number(process.env.CLAW_SERVER_PORT || 22)
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || ""
+const ANDROID_UI_URL = process.env.CLAW_ANDROID_UI_URL || "http://127.0.0.1:8791/action"
+
+const ANDROID_ROUTES = {
+  android_status: ["status", false],
+  android_ui_tree: ["tree", false],
+  android_click_text: ["click_text", true],
+  android_click_id: ["click_id", true],
+  android_set_text: ["set_text", true],
+  android_tap: ["tap", true],
+  android_scroll: ["scroll", true],
+  android_global: ["global", true],
+}
 
 const WINDOWS_ROUTES = {
   windows_status: ["host.status", false],
@@ -46,11 +58,7 @@ function parseArgs() {
   const [, , name, raw = "{}"] = process.argv
   if (!name) throw new Error("Usage: claw-tool.mjs <tool-name> '<json-arguments>'")
   let input = {}
-  try {
-    input = JSON.parse(raw)
-  } catch {
-    throw new Error("Tool arguments must be valid JSON")
-  }
+  try { input = JSON.parse(raw) } catch { throw new Error("Tool arguments must be valid JSON") }
   return { name, input }
 }
 
@@ -59,13 +67,7 @@ async function requestPhoneApproval(toolName, input, description) {
   const requestFile = `${APPROVAL_DIR}/${id}.request`
   const staged = `${APPROVAL_DIR}/${id}.tmp`
   const responseFile = `${APPROVAL_DIR}/${id}.response`
-  const payload = {
-    tool_name: toolName,
-    tool_input: {
-      ...input,
-      description,
-    },
-  }
+  const payload = { tool_name: toolName, tool_input: { ...input, description } }
   await writeFile(staged, JSON.stringify(payload))
   await rename(staged, requestFile)
   try {
@@ -84,6 +86,18 @@ async function requestPhoneApproval(toolName, input, description) {
   }
 }
 
+async function androidTool(action, input) {
+  const response = await fetch(ANDROID_UI_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action, input }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  const result = await response.json()
+  if (!response.ok || result.ok !== true) throw new Error(result.error || `Android UI bridge HTTP ${response.status}`)
+  return result.result
+}
+
 function safeServerTarget() {
   if (!SERVER_HOST) throw new Error("No server is configured in CLAW Bridge")
   if (!Number.isInteger(SERVER_PORT) || SERVER_PORT < 1 || SERVER_PORT > 65535) throw new Error("Invalid server port")
@@ -96,14 +110,7 @@ function safeServerTarget() {
 function ssh(command, timeoutMs = 30_000) {
   const target = safeServerTarget()
   return new Promise((resolve, reject) => {
-    const args = [
-      "-p", String(SERVER_PORT),
-      "-o", "BatchMode=yes",
-      "-o", "StrictHostKeyChecking=accept-new",
-      "-o", "ConnectTimeout=10",
-      target,
-      command,
-    ]
+    const args = ["-p", String(SERVER_PORT), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10", target, command]
     const child = spawn("ssh", args, { stdio: ["ignore", "pipe", "pipe"] })
     let stdout = ""
     let stderr = ""
@@ -119,9 +126,7 @@ function ssh(command, timeoutMs = 30_000) {
   })
 }
 
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", `'"'"'`)}'`
-}
+function shellQuote(value) { return `'${String(value).replaceAll("'", `'"'"'`)}'` }
 
 async function serverTool(name, input) {
   switch (name) {
@@ -141,11 +146,7 @@ async function serverTool(name, input) {
       const content = String(input.content || "")
       if (!path) throw new Error("path is required")
       if (Buffer.byteLength(content) > 1_048_576) throw new Error("File is larger than 1 MiB")
-      const approved = await requestPhoneApproval(
-        "Server write file",
-        { path },
-        `Allow writing remote file ${path}`,
-      )
+      const approved = await requestPhoneApproval("Server write file", { path }, `Allow writing remote file ${path}`)
       if (!approved) throw new Error("Server write was denied on the phone")
       const encoded = Buffer.from(content, "utf8").toString("base64")
       return ssh(`python3 - ${shellQuote(path)} ${shellQuote(encoded)} <<'PY'\nimport base64, os, sys, tempfile\np=sys.argv[1]; d=base64.b64decode(sys.argv[2]); parent=os.path.dirname(os.path.abspath(p)); os.makedirs(parent, exist_ok=True)\nfd,tmp=tempfile.mkstemp(prefix='.claw-', dir=parent)\nwith os.fdopen(fd,'wb') as f: f.write(d)\nos.replace(tmp,p)\nprint(len(d))\nPY`)
@@ -153,16 +154,11 @@ async function serverTool(name, input) {
     case "server_run_shell": {
       const command = String(input.command || "").trim()
       if (!command) throw new Error("command is required")
-      const approved = await requestPhoneApproval(
-        "Server shell",
-        { command },
-        `Allow remote server command: ${command}`,
-      )
+      const approved = await requestPhoneApproval("Server shell", { command }, `Allow remote server command: ${command}`)
       if (!approved) throw new Error("Server command was denied on the phone")
       return ssh(command, Number(input.timeoutMs || 60_000))
     }
-    default:
-      throw new Error(`Unknown server tool: ${name}`)
+    default: throw new Error(`Unknown server tool: ${name}`)
   }
 }
 
@@ -171,9 +167,7 @@ async function telegramSend(input) {
   const text = String(input.text || "").trim()
   if (!text) throw new Error("text is required")
   const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text.slice(0, 4000) }),
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text.slice(0, 4000) }),
   })
   const result = await response.json()
   if (!response.ok || !result.ok) throw new Error(result.description || `Telegram HTTP ${response.status}`)
@@ -182,6 +176,17 @@ async function telegramSend(input) {
 
 async function main() {
   const { name, input } = parseArgs()
+  if (ANDROID_ROUTES[name]) {
+    const [action, needsApproval] = ANDROID_ROUTES[name]
+    if (needsApproval) {
+      const preview = input.text || input.viewId || input.selector || input.action || name
+      const approved = await requestPhoneApproval(`Android ${name}`, input, `Allow Android action: ${preview}`)
+      if (!approved) throw new Error("Android action was denied on the phone")
+    }
+    const result = await androidTool(action, input)
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
   if (WINDOWS_ROUTES[name]) {
     const [method, needsApproval] = WINDOWS_ROUTES[name]
     if (needsApproval) {
