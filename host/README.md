@@ -8,6 +8,28 @@ The server binds to `127.0.0.1:8790` by default. Use Tailscale or another privat
 encrypted network before binding it to a LAN address. Never expose this port to
 the public internet.
 
+## Packaged Windows install
+
+Download the `claw-host-windows` artifact from the Windows CLAW Host GitHub
+Actions run, extract it, and run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\install-windows.ps1
+```
+
+The packaged installer includes its own Node executable. It requires Tailscale
+to already be installed and signed in, binds only to the computer's Tailscale
+IPv4 address, registers an auto-start entry for the current Windows user, and
+prints the URL and pairing token to enter in the phone app. It does not install
+RustDesk or expose a public port. The default accessible workspace is the
+current user's Documents folder; pass `-WorkspaceRoot C:\path\to\work` to choose
+a different existing folder.
+
+The host deliberately runs in the signed-in desktop session, not as a Windows
+service, because visible-app and screenshot operations cannot work from Windows
+Session 0.
+
 ```powershell
 npm ci
 $env:CLAW_HOST_ROOTS = "$HOME\Projects"

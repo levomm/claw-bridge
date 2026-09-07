@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -94,7 +95,7 @@ import com.jarves.mh.ui.theme.AppThemeMode
 import com.jarves.mh.ui.theme.PocketOrange
 import kotlinx.coroutines.launch
 
-private enum class SettingsSection { CONNECTION, APPEARANCE, TOOLS, RUNTIME, UPDATE_CHANNEL }
+private enum class SettingsSection { CONNECTION, WINDOWS, APPEARANCE, TOOLS, RUNTIME, UPDATE_CHANNEL }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,6 +108,9 @@ fun SettingsScreen(
     onPing: () -> Unit,
     onClearTerminal: () -> Unit,
     getSavedApiKey: (ProviderKind) -> String,
+    initialWindowsHostUrl: String = "",
+    getSavedWindowsHostToken: () -> String = { "" },
+    onSaveWindowsHost: (String, String) -> Unit = { _, _ -> },
     onInstallDevStack: (DevStack) -> Unit = {},
     initialDebugUpdateManifestUrl: String = "",
     onSetDebugUpdateManifestUrl: (String) -> Unit = {},
@@ -128,6 +132,10 @@ fun SettingsScreen(
     var status by remember { mutableStateOf<String?>(null) }
     var statusOk by remember { mutableStateOf(false) }
     var terminalCleared by remember { mutableStateOf(false) }
+    var windowsHostUrl by rememberSaveable(initialWindowsHostUrl) { mutableStateOf(initialWindowsHostUrl) }
+    var windowsHostToken by rememberSaveable { mutableStateOf(getSavedWindowsHostToken()) }
+    var windowsTokenVisible by rememberSaveable { mutableStateOf(false) }
+    var windowsStatus by remember { mutableStateOf<String?>(null) }
     var showReliabilityHelp by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val filteredModels = remember(models, modelSearch) {
@@ -267,6 +275,78 @@ fun SettingsScreen(
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+
+            item {
+                SettingsAccordion(
+                    title = "Windows computer",
+                    subtitle = if (initialWindowsHostUrl.isBlank()) "Not paired" else initialWindowsHostUrl,
+                    icon = Icons.Default.Computer,
+                    expanded = expanded == SettingsSection.WINDOWS,
+                    onClick = { toggle(SettingsSection.WINDOWS) },
+                ) {
+                    Text(
+                        "Connect the CLAW Host running in your signed-in Windows session. Use its private Tailscale address; never expose the host port to the public internet.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = windowsHostUrl,
+                        onValueChange = { windowsHostUrl = it; windowsStatus = null },
+                        label = { Text("Host WebSocket URL") },
+                        placeholder = { Text("ws://100.x.x.x:8790") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = windowsHostToken,
+                        onValueChange = { windowsHostToken = it; windowsStatus = null },
+                        label = { Text("Pairing token") },
+                        singleLine = true,
+                        visualTransformation = if (windowsTokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { windowsTokenVisible = !windowsTokenVisible }) {
+                                Icon(
+                                    if (windowsTokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    if (windowsTokenVisible) "Hide token" else "Show token",
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            val url = windowsHostUrl.trim().trimEnd('/')
+                            when {
+                                url.isBlank() || windowsHostToken.isBlank() -> windowsStatus = "Enter both the host URL and pairing token."
+                                !url.startsWith("ws://") && !url.startsWith("wss://") -> windowsStatus = "The host URL must start with ws:// or wss://."
+                                else -> {
+                                    onSaveWindowsHost(url, windowsHostToken)
+                                    windowsStatus = "Saved. The gateway is reconnecting to Windows."
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Save & connect")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            windowsHostUrl = ""
+                            windowsHostToken = ""
+                            onSaveWindowsHost("", "")
+                            windowsStatus = "Windows host disconnected."
+                        },
+                        enabled = initialWindowsHostUrl.isNotBlank() || windowsHostUrl.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Disconnect Windows host")
+                    }
+                    windowsStatus?.let {
+                        Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
 
             item {
                 SettingsAccordion(

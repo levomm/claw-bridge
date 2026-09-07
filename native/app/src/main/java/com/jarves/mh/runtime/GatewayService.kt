@@ -11,6 +11,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jarves.mh.MainActivity
 import com.jarves.mh.R
+import com.jarves.mh.data.ApiKeyVault
+import com.jarves.mh.data.AppPreferences
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +59,8 @@ class GatewayService : Service() {
                 val installer = RuntimeInstaller(this@GatewayService)
                 val runtime = installer.installedRuntime()
                 val workspace = File(filesDir, "workspaces").apply { mkdirs() }
+                val preferences = AppPreferences(this@GatewayService)
+                val vault = ApiKeyVault(this@GatewayService)
                 installer.process(
                     proot = runtime.proot,
                     rootfs = runtime.rootfs,
@@ -68,6 +72,8 @@ class GatewayService : Service() {
                         "CLAW_IPV4_PROXY_PORT" to "8788",
                         "CLAW_DATA_DIR" to "/root/.openclaw",
                         "CLAW_PROJECT" to "/workspace",
+                        "CLAW_WINDOWS_URL" to preferences.windowsHostUrl,
+                        "CLAW_WINDOWS_TOKEN" to vault.get(WINDOWS_HOST_TOKEN_KEY).orEmpty(),
                     ),
                     guestCommand = listOf("/usr/bin/env", "node", "/opt/claw-gateway/server.mjs"),
                 )
@@ -146,6 +152,7 @@ class GatewayService : Service() {
     companion object {
         const val ACTION_START = "com.jarves.mh.START_GATEWAY"
         const val ACTION_STOP = "com.jarves.mh.STOP_GATEWAY"
+        const val WINDOWS_HOST_TOKEN_KEY = "CLAW_WINDOWS_HOST"
         private const val CHANNEL_ID = "claw-gateway"
         private const val RESULT_CHANNEL_ID = "claw-gateway-results"
         private const val NOTIFICATION_ID = 61
@@ -156,6 +163,11 @@ class GatewayService : Service() {
                 context,
                 Intent(context, GatewayService::class.java).setAction(ACTION_START),
             )
+        }
+
+        fun restart(context: Context) {
+            GatewayProcessController.stop()
+            start(context)
         }
 
         private fun ensureNotificationChannel(context: Context) {

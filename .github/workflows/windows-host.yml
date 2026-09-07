@@ -28,3 +28,22 @@ jobs:
       - name: Test CLAW Host
         working-directory: host
         run: npm test
+      - name: Package standalone Windows host
+        shell: pwsh
+        run: |
+          $null = [scriptblock]::Create((Get-Content host\install-windows.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content host\uninstall-windows.ps1 -Raw))
+          $dist = Join-Path $PWD 'dist\claw-host-windows'
+          New-Item -ItemType Directory -Force -Path $dist, (Join-Path $dist 'runtime') | Out-Null
+          Copy-Item host\server.mjs, host\package.json, host\package-lock.json, host\README.md, host\install-windows.ps1, host\uninstall-windows.ps1 $dist
+          Copy-Item host\node_modules $dist -Recurse
+          Copy-Item (Get-Command node.exe).Source (Join-Path $dist 'runtime\node.exe')
+          $nodeLicense = Join-Path (Split-Path (Get-Command node.exe).Source) 'LICENSE'
+          if (Test-Path $nodeLicense) { Copy-Item $nodeLicense (Join-Path $dist 'runtime\NODE-LICENSE') }
+          Compress-Archive -Path "$dist\*" -DestinationPath dist\claw-host-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claw-host-windows-v0.1.0
+          path: dist/claw-host-windows.zip
+          if-no-files-found: error
+          retention-days: 30

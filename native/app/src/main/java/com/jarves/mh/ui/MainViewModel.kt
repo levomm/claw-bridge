@@ -35,6 +35,7 @@ import com.jarves.mh.runtime.ClaudeRuntimeBridge
 import com.jarves.mh.runtime.NativeSpawnProcess
 import com.jarves.mh.runtime.RuntimeInstallProgress
 import com.jarves.mh.runtime.RuntimeInstaller
+import com.jarves.mh.runtime.GatewayService
 import com.jarves.mh.runtime.RuntimeSetupController
 import com.jarves.mh.runtime.RuntimeSetupService
 import com.jarves.mh.runtime.RuntimeSetupSnapshot
@@ -757,6 +758,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getSavedApiKey(kind: ProviderKind): String = vault.get(kind.name).orEmpty()
+
+    fun windowsHostUrl(): String = preferences.windowsHostUrl
+
+    fun getSavedWindowsHostToken(): String =
+        vault.get(GatewayService.WINDOWS_HOST_TOKEN_KEY).orEmpty()
+
+    fun saveWindowsHost(url: String, token: String) {
+        val normalizedUrl = url.trim().trimEnd('/')
+        preferences.windowsHostUrl = normalizedUrl
+        if (token.isBlank()) {
+            vault.remove(GatewayService.WINDOWS_HOST_TOKEN_KEY)
+        } else {
+            vault.put(GatewayService.WINDOWS_HOST_TOKEN_KEY, token.trim())
+        }
+        if (installer.isInstalled()) GatewayService.restart(getApplication())
+        _state.update {
+            it.copy(
+                toastMessage = if (normalizedUrl.isBlank()) {
+                    "Windows host disconnected"
+                } else {
+                    "Windows host saved. Gateway restarted."
+                },
+            )
+        }
+    }
 
     init {
         viewModelScope.launch { RuntimeSetupController.snapshot.collect(::onSetupSnapshot) }

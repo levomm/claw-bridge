@@ -54,6 +54,11 @@ class AppPreferences(private val context: Context) {
         get() = preferences.getString("debug_update_manifest_url", "") ?: ""
         set(value) { preferences.edit().putString("debug_update_manifest_url", value).apply() }
 
+    /** Private-network WebSocket endpoint of the paired desktop CLAW Host. */
+    var windowsHostUrl: String
+        get() = preferences.getString("windows_host_url", "") ?: ""
+        set(value) { preferences.edit().putString("windows_host_url", value).apply() }
+
     /** Development stacks the user picked during onboarding (names of DevStack). */
     var selectedDevStacks: Set<String>
         get() {
