@@ -17,6 +17,8 @@ const IPV4_PROXY_HOST = "127.0.0.1"
 const IPV4_PROXY_URL = `http://${IPV4_PROXY_HOST}:${IPV4_PROXY_PORT}`
 const IPV4_PROXY_ENABLED = process.env.CLAW_IPV4_PROXY !== "0"
 const DATA_DIR = process.env.CLAW_DATA_DIR || join(homedir(), ".openclaw")
+const WINDOWS_HOST_URL = process.env.CLAW_WINDOWS_URL || ""
+const WINDOWS_HOST_TOKEN = process.env.CLAW_WINDOWS_TOKEN || ""
 const TOKEN_FILE = join(DATA_DIR, "token")
 const AUDIT_FILE = join(DATA_DIR, "audit.json")
 const startTime = Date.now()
@@ -114,6 +116,7 @@ async function status() {
     android: androidRuntime ? "online" : "degraded",
     telegramBot: process.env.TELEGRAM_BOT_TOKEN ? "online" : "offline",
     shizuku: shizuku ? "online" : "offline",
+    windowsHost: WINDOWS_HOST_URL && WINDOWS_HOST_TOKEN ? "unknown" : "offline",
     device: await deviceInfo(),
     activeRuns: runs.size,
     pendingApprovals: [...approvals.values()].filter((item) => item.status === "pending").length,
@@ -193,7 +196,7 @@ function emitRun(ws, channel, type, text) {
 
 async function requestApproval(ws, channel, request, display) {
   const project = process.env.CLAW_PROJECT || homedir()
-  const rule = `${request.target}:${project}`
+  const rule = request.scope || `${request.target}:${project}`
   if (request.permissionMode !== "ask" || allowedRules.has(rule)) return true
   const approval = {
     id: id("approval"),
@@ -210,6 +213,82 @@ async function requestApproval(ws, channel, request, display) {
   await broadcastStatus()
   emitRun(ws, channel, "status", `Waiting for approval: ${approval.id}`)
   return new Promise((resolveDecision) => approvalWaiters.set(approval.id, { resolveDecision, rule }))
+}
+
+function remoteHostRequest(method, params) {
+  if (!WINDOWS_HOST_URL || !WINDOWS_HOST_TOKEN) throw new Error("Windows CLAW Host is not paired")
+  return new Promise((resolveRequest, rejectRequest) => {
+    const socket = new WebSocket(WINDOWS_HOST_URL, { maxPayload: 10 * 1024 * 1024 })
+    const authId = id("host_auth")
+    const requestId = id("host_request")
+    let authenticated = false
+    const timer = setTimeout(() => {
+      socket.terminate()
+      rejectRequest(new Error("Windows CLAW Host timed out"))
+    }, 30_000)
+    const finish = (callback) => {
+      clearTimeout(timer)
+      socket.close()
+      callback()
+    }
+    socket.once("error", (error) => finish(() => rejectRequest(error)))
+    socket.once("open", () => {
+      socket.send(JSON.stringify({ type: "auth", id: authId, protocol: 1, token: WINDOWS_HOST_TOKEN }))
+    })
+    socket.on("message", (raw) => {
+      let message
+      try {
+        message = JSON.parse(raw.toString())
+      } catch {
+        finish(() => rejectRequest(new Error("Windows CLAW Host returned invalid JSON")))
+        return
+      }
+      if (!authenticated && message.id === authId) {
+        if (!message.ok) {
+          finish(() => rejectRequest(new Error(message.error?.message || "Windows CLAW Host authentication failed")))
+          return
+        }
+        authenticated = true
+        socket.send(JSON.stringify({ type: "request", id: requestId, method, params }))
+        return
+      }
+      if (authenticated && message.id === requestId) {
+        if (message.ok) finish(() => resolveRequest(message.result))
+        else finish(() => rejectRequest(new Error(message.error?.message || "Windows CLAW Host request failed")))
+      }
+    })
+  })
+}
+
+const hostApprovalMethods = new Set([
+  "host.files.write",
+  "host.shell.exec",
+  "host.app.launch",
+  "host.browser.open",
+  "host.ui.focus",
+  "host.screenshot.capture",
+])
+
+async function dispatchHost(ws, method, params = {}) {
+  let approved = !hostApprovalMethods.has(method)
+  if (!approved) {
+    const channel = params.channel || "windows-host"
+    approved = await requestApproval(
+      ws,
+      channel,
+      {
+        target: "windows",
+        permissionMode: params.permissionMode || "ask",
+        scope: `windows:${method}:${params.rootIndex || 0}`,
+      },
+      `${method} ${params.path || params.command || params.url || params.executable || ""}`.trim(),
+    )
+  }
+  if (!approved) throw new Error("Windows action was denied")
+  const forwarded = { ...params, approved }
+  delete forwarded.permissionMode
+  delete forwarded.channel
+  return remoteHostRequest(method, forwarded)
 }
 
 async function startRun(ws, params) {
@@ -322,6 +401,7 @@ async function resolveApproval(params) {
 }
 
 async function dispatch(ws, method, params) {
+  if (String(method).startsWith("host.")) return dispatchHost(ws, method, params)
   switch (method) {
     case "status.get": return status()
     case "run.start": void startRun(ws, params).catch((error) => emitRun(ws, params?.channel, "error", error.message)); return { accepted: true }

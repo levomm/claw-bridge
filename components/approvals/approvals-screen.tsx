@@ -4,7 +4,7 @@ import * as React from "react"
 import { ShieldCheckIcon, ShieldAlertIcon } from "lucide-react"
 import { toast } from "sonner"
 import { useBridge } from "@/components/providers/bridge-provider"
-import { TARGET_LABELS, type ApprovalDecision, type ApprovalRequest, type AuditEntry, type RiskLevel } from "@/lib/gateway"
+import { APPROVAL_AGENT_LABELS, type ApprovalDecision, type ApprovalRequest, type AuditEntry, type RiskLevel } from "@/lib/gateway"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,7 +49,7 @@ function ApprovalCard({ approval, onDecide }: { approval: ApprovalRequest; onDec
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardDescription className="font-mono text-xs">
-            {TARGET_LABELS[approval.agent]} · {approval.project}
+            {APPROVAL_AGENT_LABELS[approval.agent]} · {approval.project}
           </CardDescription>
           <Badge variant={RISK_VARIANT[approval.risk]} className="uppercase">
             {approval.risk} risk
@@ -177,7 +177,7 @@ export function ApprovalsScreen() {
             <div key={e.id} className="flex flex-col gap-1 rounded-lg border border-border p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">
-                  {TARGET_LABELS[e.agent]} · {e.project}
+                  {APPROVAL_AGENT_LABELS[e.agent]} · {e.project}
                 </span>
                 <Badge variant={e.decision === "deny" ? "destructive" : "secondary"} className="text-[10px]">
                   {DECISION_LABEL[e.decision]}

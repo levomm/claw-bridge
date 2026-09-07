@@ -5,6 +5,8 @@ export type ServiceState = "online" | "offline" | "degraded" | "unknown"
 
 export type Target = "auto" | "codex" | "claude-code" | "termux" | "ssh"
 
+export type ApprovalAgent = Exclude<Target, "auto"> | "windows"
+
 export type PermissionMode = "ask" | "allow-once" | "project-default"
 
 export type RiskLevel = "low" | "medium" | "high"
@@ -42,6 +44,7 @@ export interface GatewayStatus {
   android: ServiceState
   telegramBot: ServiceState
   shizuku: ServiceState
+  windowsHost?: ServiceState
   device: DeviceInfo
   activeRuns: number
   pendingApprovals: number
@@ -84,7 +87,7 @@ export interface TerminalLine {
 export interface ApprovalRequest {
   id: string
   command: string
-  agent: Exclude<Target, "auto">
+  agent: ApprovalAgent
   project: string
   risk: RiskLevel
   reason: string
@@ -96,7 +99,7 @@ export interface AuditEntry {
   id: string
   approvalId: string
   command: string
-  agent: Exclude<Target, "auto">
+  agent: ApprovalAgent
   project: string
   risk: RiskLevel
   decision: ApprovalDecision

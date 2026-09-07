@@ -5,15 +5,29 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import net from "node:net"
-import { WebSocket } from "ws"
+import { WebSocket, WebSocketServer } from "ws"
 
 const port = 18787
 const proxyPort = 18788
+const hostPort = 18790
 const token = "test-token-123456"
 const fixtureDir = await mkdtemp(join(tmpdir(), "claw-bridge-test-"))
 const fakeCodex = join(fixtureDir, "codex")
 await writeFile(fakeCodex, "#!/bin/sh\nprintf '%s' \"$HTTPS_PROXY\"\n")
 await chmod(fakeCodex, 0o700)
+const fakeHost = new WebSocketServer({ port: hostPort })
+fakeHost.on("connection", (socket) => {
+  let authenticated = false
+  socket.on("message", (raw) => {
+    const message = JSON.parse(raw.toString())
+    if (!authenticated) {
+      authenticated = message.type === "auth" && message.token === "windows-test-token"
+      socket.send(JSON.stringify({ type: "response", id: message.id, ok: authenticated, result: { authenticated } }))
+      return
+    }
+    socket.send(JSON.stringify({ type: "response", id: message.id, ok: true, result: { method: message.method, params: message.params, online: true } }))
+  })
+})
 const child = spawn(process.execPath, ["server.mjs"], {
   cwd: new URL(".", import.meta.url),
   env: {
@@ -23,6 +37,8 @@ const child = spawn(process.execPath, ["server.mjs"], {
     CLAW_HOST: "127.0.0.1",
     CLAW_IPV4_PROXY_PORT: String(proxyPort),
     CLAW_NATIVE_ANDROID: "1",
+    CLAW_WINDOWS_URL: `ws://127.0.0.1:${hostPort}`,
+    CLAW_WINDOWS_TOKEN: "windows-test-token",
     CLAW_TOKEN: token,
   },
   stdio: ["ignore", "pipe", "inherit"],
@@ -43,6 +59,7 @@ if (!gatewayReady) throw new Error("Test gateway did not start")
 
 test.after(async () => {
   child.kill("SIGTERM")
+  await new Promise((resolve) => fakeHost.close(resolve))
   await rm(fixtureDir, { recursive: true, force: true })
 })
 
@@ -68,6 +85,40 @@ test("rejects a bad token", async () => {
   const { ws, message } = await connect("wrong-token")
   assert.equal(message.ok, false)
   assert.equal(message.error.code, "unauthorized")
+  ws.close()
+})
+
+test("relays read-only requests to a paired Windows host", async () => {
+  const { ws } = await connect()
+  const messages = []
+  ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())))
+  ws.send(JSON.stringify({ type: "request", id: "host-status", method: "host.status" }))
+  for (let attempt = 0; attempt < 50 && !messages.some((item) => item.id === "host-status"); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  const response = messages.find((item) => item.id === "host-status")
+  assert.equal(response.ok, true)
+  assert.equal(response.result.method, "host.status")
+  ws.close()
+})
+
+test("marks explicitly approved Windows actions for the host", async () => {
+  const { ws } = await connect()
+  const messages = []
+  ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())))
+  ws.send(JSON.stringify({
+    type: "request",
+    id: "host-shell",
+    method: "host.shell.exec",
+    params: { command: "Write-Output ok", permissionMode: "allow-once", channel: "host-test" },
+  }))
+  for (let attempt = 0; attempt < 50 && !messages.some((item) => item.id === "host-shell"); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  const response = messages.find((item) => item.id === "host-shell")
+  assert.equal(response.ok, true)
+  assert.equal(response.result.params.approved, true)
+  assert.equal(response.result.params.permissionMode, undefined)
   ws.close()
 })
 
