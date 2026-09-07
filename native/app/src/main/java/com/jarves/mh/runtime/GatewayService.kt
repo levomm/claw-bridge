@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jarves.mh.MainActivity
 import com.jarves.mh.R
+import com.jarves.mh.automation.AndroidUiBridgeServer
 import com.jarves.mh.data.ApiKeyVault
 import com.jarves.mh.data.AppPreferences
 import com.jarves.mh.data.ConnectionVault
@@ -34,10 +35,12 @@ internal object GatewayProcessController {
 class GatewayService : Service() {
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + Dispatchers.IO)
+    private var androidUiBridge: AndroidUiBridgeServer? = null
 
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel(this)
+        androidUiBridge = AndroidUiBridgeServer(File(filesDir, "audit/android-ui.jsonl")).also { it.start(ANDROID_UI_PORT) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -70,6 +73,7 @@ class GatewayService : Service() {
                     put("CLAW_HOST", "127.0.0.1")
                     put("CLAW_PORT", "8787")
                     put("CLAW_IPV4_PROXY_PORT", "8788")
+                    put("CLAW_ANDROID_UI_URL", "http://127.0.0.1:$ANDROID_UI_PORT/action")
                     put("CLAW_DATA_DIR", "/root/.openclaw")
                     put("CLAW_PROJECT", "/workspace")
                     put("CLAW_APPROVAL_DIR", "/pocket-bridge")
@@ -167,6 +171,8 @@ class GatewayService : Service() {
     )
 
     override fun onDestroy() {
+        androidUiBridge?.stop()
+        androidUiBridge = null
         GatewayProcessController.stop()
         scope.cancel()
         super.onDestroy()
@@ -178,6 +184,7 @@ class GatewayService : Service() {
         const val ACTION_START = "com.jarves.mh.START_GATEWAY"
         const val ACTION_STOP = "com.jarves.mh.STOP_GATEWAY"
         const val WINDOWS_HOST_TOKEN_KEY = "CLAW_WINDOWS_HOST"
+        const val ANDROID_UI_PORT = 8791
         private const val CHANNEL_ID = "claw-gateway"
         private const val RESULT_CHANNEL_ID = "claw-gateway-results"
         private const val NOTIFICATION_ID = 61
