@@ -13,6 +13,7 @@ import com.jarves.mh.MainActivity
 import com.jarves.mh.R
 import com.jarves.mh.data.ApiKeyVault
 import com.jarves.mh.data.AppPreferences
+import com.jarves.mh.data.ConnectionVault
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,20 +62,43 @@ class GatewayService : Service() {
                 val workspace = File(filesDir, "workspaces").apply { mkdirs() }
                 val preferences = AppPreferences(this@GatewayService)
                 val vault = ApiKeyVault(this@GatewayService)
+                val connectionVault = ConnectionVault(this@GatewayService)
+                val connectionPrefs = getSharedPreferences("claw_connections", Context.MODE_PRIVATE)
+
+                val environment = buildMap {
+                    put("CLAW_NATIVE_ANDROID", "1")
+                    put("CLAW_HOST", "127.0.0.1")
+                    put("CLAW_PORT", "8787")
+                    put("CLAW_IPV4_PROXY_PORT", "8788")
+                    put("CLAW_DATA_DIR", "/root/.openclaw")
+                    put("CLAW_PROJECT", "/workspace")
+
+                    if (preferences.windowsHostUrl.isNotBlank()) {
+                        put("CLAW_WINDOWS_URL", preferences.windowsHostUrl)
+                    }
+                    vault.get(WINDOWS_HOST_TOKEN_KEY)?.takeIf(String::isNotBlank)?.let {
+                        put("CLAW_WINDOWS_TOKEN", it)
+                    }
+
+                    connectionPrefs.getString("server", "")?.takeIf(String::isNotBlank)?.let {
+                        put("CLAW_SERVER_HOST", it)
+                        put("CLAW_SERVER_USER", connectionPrefs.getString("server_user", "").orEmpty())
+                        put("CLAW_SERVER_PORT", connectionPrefs.getInt("server_port", 22).toString())
+                    }
+
+                    connectionVault.get("telegram_bot_token")?.takeIf(String::isNotBlank)?.let {
+                        put("TELEGRAM_BOT_TOKEN", it)
+                    }
+                    connectionPrefs.getString("telegram_chat", "")?.takeIf(String::isNotBlank)?.let {
+                        put("TELEGRAM_CHAT_ID", it)
+                    }
+                }
+
                 installer.process(
                     proot = runtime.proot,
                     rootfs = runtime.rootfs,
                     workspace = workspace,
-                    environment = mapOf(
-                        "CLAW_NATIVE_ANDROID" to "1",
-                        "CLAW_HOST" to "127.0.0.1",
-                        "CLAW_PORT" to "8787",
-                        "CLAW_IPV4_PROXY_PORT" to "8788",
-                        "CLAW_DATA_DIR" to "/root/.openclaw",
-                        "CLAW_PROJECT" to "/workspace",
-                        "CLAW_WINDOWS_URL" to preferences.windowsHostUrl,
-                        "CLAW_WINDOWS_TOKEN" to vault.get(WINDOWS_HOST_TOKEN_KEY).orEmpty(),
-                    ),
+                    environment = environment,
                     guestCommand = listOf("/usr/bin/env", "node", "/opt/claw-gateway/server.mjs"),
                 )
             }.onSuccess { process ->
