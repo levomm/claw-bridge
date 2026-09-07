@@ -40,10 +40,9 @@ jobs:
           Copy-Item (Get-Command node.exe).Source (Join-Path $dist 'runtime\node.exe')
           $nodeLicense = Join-Path (Split-Path (Get-Command node.exe).Source) 'LICENSE'
           if (Test-Path $nodeLicense) { Copy-Item $nodeLicense (Join-Path $dist 'runtime\NODE-LICENSE') }
-          Compress-Archive -Path "$dist\*" -DestinationPath dist\claw-host-windows.zip
       - uses: actions/upload-artifact@v4
         with:
           name: claw-host-windows-v0.1.0
-          path: dist/claw-host-windows.zip
+          path: dist/claw-host-windows/
           if-no-files-found: error
           retention-days: 30
