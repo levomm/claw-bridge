@@ -1,4 +1,4 @@
-package ee.clawbridge.app.nativebeta.runtime
+package com.jarves.mh.runtime
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,10 +9,10 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import ee.clawbridge.app.nativebeta.MainActivity
-import ee.clawbridge.app.nativebeta.R
-import ee.clawbridge.app.nativebeta.data.AppPreferences
-import ee.clawbridge.app.nativebeta.model.DevStack
+import com.jarves.mh.MainActivity
+import com.jarves.mh.R
+import com.jarves.mh.data.AppPreferences
+import com.jarves.mh.model.DevStack
 import java.io.File
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
@@ -266,6 +266,7 @@ class RuntimeSetupService : Service() {
                     }
                     AppPreferences(this@RuntimeSetupService).runtimeSetupComplete = true
                     RuntimeSetupController.complete(this@RuntimeSetupService)
+                    GatewayService.start(this@RuntimeSetupService)
                     showFinishedNotification(success = true)
                 } catch (_: CancellationException) {
                     RuntimeSetupController.cancelled(this@RuntimeSetupService)
@@ -360,8 +361,8 @@ class RuntimeSetupService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        const val ACTION_START = "ee.clawbridge.app.nativebeta.START_SETUP"
-        const val ACTION_STOP = "ee.clawbridge.app.nativebeta.STOP_SETUP"
+        const val ACTION_START = "com.jarves.mh.START_SETUP"
+        const val ACTION_STOP = "com.jarves.mh.STOP_SETUP"
         const val EXTRA_STACKS = "selected_stacks"
         private const val CHANNEL_ID = "runtime-setup"
         private const val NOTIFICATION_ID = 51

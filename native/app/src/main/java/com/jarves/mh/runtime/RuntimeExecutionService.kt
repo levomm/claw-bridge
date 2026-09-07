@@ -1,4 +1,4 @@
-package ee.clawbridge.app.nativebeta.runtime
+package com.jarves.mh.runtime
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,8 +8,8 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import ee.clawbridge.app.nativebeta.MainActivity
-import ee.clawbridge.app.nativebeta.R
+import com.jarves.mh.MainActivity
+import com.jarves.mh.R
 
 internal object RuntimeTaskController {
     @Volatile var stopAction: (() -> Unit)? = null
@@ -146,12 +146,12 @@ class RuntimeExecutionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        const val ACTION_START = "ee.clawbridge.app.nativebeta.START_RUNTIME"
-        const val ACTION_STOP = "ee.clawbridge.app.nativebeta.STOP_RUNTIME"
-        const val ACTION_PROGRESS = "ee.clawbridge.app.nativebeta.PROGRESS_RUNTIME"
-        const val ACTION_COMPLETE = "ee.clawbridge.app.nativebeta.COMPLETE_RUNTIME"
-        const val ACTION_FAILED = "ee.clawbridge.app.nativebeta.FAIL_RUNTIME"
-        const val ACTION_CANCELLED = "ee.clawbridge.app.nativebeta.CANCEL_RUNTIME"
+        const val ACTION_START = "com.jarves.mh.START_RUNTIME"
+        const val ACTION_STOP = "com.jarves.mh.STOP_RUNTIME"
+        const val ACTION_PROGRESS = "com.jarves.mh.PROGRESS_RUNTIME"
+        const val ACTION_COMPLETE = "com.jarves.mh.COMPLETE_RUNTIME"
+        const val ACTION_FAILED = "com.jarves.mh.FAIL_RUNTIME"
+        const val ACTION_CANCELLED = "com.jarves.mh.CANCEL_RUNTIME"
         const val EXTRA_PROJECT_NAME = "project_name"
         const val EXTRA_DETAIL = "detail"
 

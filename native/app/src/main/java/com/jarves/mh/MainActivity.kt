@@ -10,6 +10,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jarves.mh.ui.MainViewModel
 import com.jarves.mh.ui.PocketDevApp
 import com.jarves.mh.ui.theme.PocketTheme
+import com.jarves.mh.runtime.GatewayService
+import com.jarves.mh.runtime.RuntimeInstaller
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,5 +24,10 @@ class MainActivity : ComponentActivity() {
                 PocketDevApp(vm)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (RuntimeInstaller(this).isInstalled()) GatewayService.start(this)
     }
 }

@@ -53,6 +53,8 @@ private data class RuntimeBundle(
 class RuntimeInstaller(private val context: Context) {
     private val runtimeDir = File(context.filesDir, "runtime")
     private val rootfs = File(runtimeDir, "ubuntu")
+    private val clawGatewayDir = File(rootfs, "opt/claw-gateway")
+    private val clawGatewayMarker = File(clawGatewayDir, ".claw-gateway-version")
     private val downloads = File(context.cacheDir, "runtime-downloads")
     private val marker = File(rootfs, ".pocket-runtime-ready")
     private val bundledClaudeMarker = File(rootfs, ".pocket-bundled-claude-version")
@@ -75,6 +77,8 @@ class RuntimeInstaller(private val context: Context) {
             rootfsMarker.readTextOrNull() == ROOTFS_VERSION &&
             File(rootfs, "usr/local/bin/claude").exists() &&
             File(rootfs, "usr/local/bin/node").exists() &&
+            File(clawGatewayDir, "server.mjs").isFile &&
+            clawGatewayMarker.readTextOrNull() == BuildConfig.CLAW_GATEWAY_VERSION &&
             (legacyLanguageTools || coreToolsReady) &&
             marker.exists()
         if (ready) repairLegacyMacosMetadata()
@@ -237,6 +241,8 @@ class RuntimeInstaller(private val context: Context) {
             applyStack(proot, stack, from, from + slice, onProgress)
         }
 
+        installClawGateway()
+
         // The binary and version manifest were already checksum-verified above. Running a
         // separate `claude --version` probe under PRoot can leave inherited output pipes
         // open on some Android kernels, so the real user session is the launch check.
@@ -256,6 +262,37 @@ class RuntimeInstaller(private val context: Context) {
         if (isStackInstalled(stack)) return
         applyStack(runtime.proot, stack, 0.05f, 0.95f, onProgress)
         onProgress(RuntimeInstallProgress("${stack.label} tools are ready", 1f))
+    }
+
+    private fun installClawGateway() {
+        if (
+            File(clawGatewayDir, "server.mjs").isFile &&
+            clawGatewayMarker.readTextOrNull() == BuildConfig.CLAW_GATEWAY_VERSION
+        ) return
+
+        val staging = File(runtimeDir, "claw-gateway.installing")
+        staging.deleteRecursively()
+        staging.mkdirs()
+        copyAssetTree("claw-gateway", staging)
+        require(File(staging, "server.mjs").isFile) { "CLAW gateway asset is missing server.mjs" }
+        require(File(staging, "node_modules/ws/package.json").isFile) { "CLAW gateway WebSocket dependency is missing" }
+        File(staging, ".claw-gateway-version").writeText(BuildConfig.CLAW_GATEWAY_VERSION)
+        clawGatewayDir.deleteRecursively()
+        clawGatewayDir.parentFile?.mkdirs()
+        check(staging.renameTo(clawGatewayDir)) { "Could not activate the CLAW gateway" }
+    }
+
+    private fun copyAssetTree(assetPath: String, destination: File) {
+        val children = context.assets.list(assetPath).orEmpty()
+        if (children.isEmpty()) {
+            destination.parentFile?.mkdirs()
+            context.assets.open(assetPath).use { input ->
+                FileOutputStream(destination).use { output -> input.copyTo(output) }
+            }
+            return
+        }
+        destination.mkdirs()
+        children.forEach { child -> copyAssetTree("$assetPath/$child", File(destination, child)) }
     }
 
     private suspend fun applyStack(
@@ -955,7 +992,7 @@ class RuntimeInstaller(private val context: Context) {
             environment = buildMap {
                 put("HOME", "/root")
                 val androidReady = File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION
-                val basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                val basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/system/bin"
                 if (androidReady) {
                     put("ANDROID_HOME", "/root/android-sdk")
                     put("ANDROID_SDK_ROOT", "/root/android-sdk")

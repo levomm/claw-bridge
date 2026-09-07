@@ -39,6 +39,14 @@
                 android:value="User-started local development task" />
         </service>
         <service
+            android:name=".runtime.GatewayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-controlled local agent gateway" />
+        </service>
+        <service
             android:name=".runtime.RuntimeSetupService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

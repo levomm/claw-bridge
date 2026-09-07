@@ -31,6 +31,9 @@ val appUpdateManifestUrl =
     "https://github.com/levomm/openclaw-2/releases/latest/download/claw-bridge-update.json"
 val runtimeBundleDir = rootProject.layout.projectDirectory.dir("dist/runtime-bundles")
 val generatedRuntimeAssets = layout.buildDirectory.dir("generated/runtime-assets")
+val clawGatewaySourceDir = rootProject.layout.projectDirectory.dir("../gateway")
+val generatedClawGatewayAssets = layout.buildDirectory.dir("generated/claw-gateway-assets")
+val clawGatewayVersion = "0.3.0"
 
 val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAssets") {
     from(
@@ -39,6 +42,21 @@ val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAss
         runtimeBundleDir.file("pocketdev-android-arm64-2026.09.1.tar.zst"),
     )
     into(generatedRuntimeAssets.map { it.dir("offline/runtime") })
+}
+
+val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") {
+    from(clawGatewaySourceDir) {
+        include("server.mjs")
+        include("package.json")
+        include("package-lock.json")
+        include("node_modules/ws/**")
+    }
+    into(generatedClawGatewayAssets.map { it.dir("claw-gateway") })
+    doFirst {
+        check(clawGatewaySourceDir.file("node_modules/ws/package.json").asFile.isFile) {
+            "Run `npm --prefix gateway ci` before building the native APK."
+        }
+    }
 }
 
 fun buildConfigString(value: String): String =
@@ -84,6 +102,7 @@ android {
 
         buildConfigField("boolean", "IS_PLAY_BUILD", playBuild.toString())
         buildConfigField("String", "PRIVACY_POLICY_URL", buildConfigString(privacyPolicyUrl))
+        buildConfigField("String", "CLAW_GATEWAY_VERSION", buildConfigString(clawGatewayVersion))
 
         buildConfigField(
             "String",
@@ -111,6 +130,7 @@ android {
     }
 
     sourceSets.getByName("offline").assets.srcDir(generatedRuntimeAssets.map { it.dir("offline") })
+    sourceSets.getByName("main").assets.srcDir(generatedClawGatewayAssets)
 
     buildTypes {
         debug {
@@ -154,6 +174,9 @@ android {
 
 tasks.matching { it.name.startsWith("mergeOffline") && it.name.endsWith("Assets") }
     .configureEach { dependsOn(prepareOfflineRuntimeAssets) }
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+    .configureEach { dependsOn(prepareClawGatewayAssets) }
 
 tasks.matching { it.name.contains("Offline") && it.name.contains("lint", ignoreCase = true) }
     .configureEach { dependsOn(prepareOfflineRuntimeAssets) }

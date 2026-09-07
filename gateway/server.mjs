@@ -102,13 +102,14 @@ async function deviceInfo() {
 async function status() {
   const termuxApi = await commandExists("termux-battery-status")
   const shizuku = (await capture("sh", ["-c", "ps -A 2>/dev/null | grep -qi shizuku && echo yes"])) === "yes"
-  const androidRuntime = platform() === "android" || String(process.env.PREFIX || "").includes("com.termux")
+  const nativeAndroid = process.env.CLAW_NATIVE_ANDROID === "1"
+  const androidRuntime = nativeAndroid || platform() === "android" || String(process.env.PREFIX || "").includes("com.termux")
   return {
     gateway: "online",
     gatewayName: process.env.CLAW_NAME || hostname() || "claw-bridge",
     version: VERSION,
     uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
-    termux: androidRuntime ? "online" : "degraded",
+    termux: nativeAndroid ? "offline" : androidRuntime ? "online" : "degraded",
     termuxApi: termuxApi ? "online" : "offline",
     android: androidRuntime ? "online" : "degraded",
     telegramBot: process.env.TELEGRAM_BOT_TOKEN ? "online" : "offline",

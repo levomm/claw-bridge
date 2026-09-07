@@ -22,6 +22,7 @@ const child = spawn(process.execPath, ["server.mjs"], {
     CLAW_PORT: String(port),
     CLAW_HOST: "127.0.0.1",
     CLAW_IPV4_PROXY_PORT: String(proxyPort),
+    CLAW_NATIVE_ANDROID: "1",
     CLAW_TOKEN: token,
   },
   stdio: ["ignore", "pipe", "inherit"],
@@ -58,6 +59,8 @@ test("authenticates and returns status", async () => {
   const { ws, message } = await connect()
   assert.equal(message.ok, true)
   assert.equal(message.result.gateway, "online")
+  assert.equal(message.result.android, "online")
+  assert.equal(message.result.termux, "offline")
   ws.close()
 })
 

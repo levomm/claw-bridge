@@ -1,4 +1,4 @@
-package ee.clawbridge.app.nativebeta.runtime
+package com.jarves.mh.runtime
 
 import android.app.PendingIntent
 import android.content.Context
@@ -72,7 +72,7 @@ object AndroidAppInstaller {
         }
     }
 
-    const val ACTION_INSTALL_RESULT = "ee.clawbridge.app.nativebeta.action.APK_INSTALL_RESULT"
+    const val ACTION_INSTALL_RESULT = "com.jarves.mh.action.APK_INSTALL_RESULT"
 
     private fun isMiuiDevice(): Boolean = android.os.Build.MANUFACTURER.lowercase() in
         setOf("xiaomi", "redmi", "poco")
