@@ -51,4 +51,9 @@ Current methods:
 - `host.browser.open`
 - `host.ui.windows`
 - `host.ui.focus`
+- `host.ui.elements`
+- `host.ui.invoke`
+- `host.ui.setValue`
+- `host.ui.click`
+- `host.ui.sendKeys`
 - `host.screenshot.capture`

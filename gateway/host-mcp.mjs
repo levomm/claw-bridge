@@ -16,6 +16,11 @@ export const tools = [
   { name: "windows_open_url", description: "Open an HTTP(S) URL in the Windows default browser after phone approval.", inputSchema: { type: "object", required: ["url"], properties: { url: { type: "string" } } } },
   { name: "windows_list_windows", description: "List visible windows and application titles on the paired Windows computer.", inputSchema: { type: "object", properties: {} } },
   { name: "windows_focus_window", description: "Focus a visible Windows application by title after phone approval.", inputSchema: { type: "object", required: ["title"], properties: { title: { type: "string" } } } },
+  { name: "windows_list_controls", description: "List named Windows UI Automation controls with their type and bounds.", inputSchema: { type: "object", properties: {} } },
+  { name: "windows_invoke_control", description: "Invoke a named Windows UI Automation button or control after phone approval.", inputSchema: { type: "object", required: ["name"], properties: { name: { type: "string" } } } },
+  { name: "windows_set_control_value", description: "Set a named Windows UI Automation input value after phone approval.", inputSchema: { type: "object", required: ["name", "value"], properties: { name: { type: "string" }, value: { type: "string" } } } },
+  { name: "windows_click", description: "Fallback: click exact Windows screen coordinates after phone approval.", inputSchema: { type: "object", required: ["x", "y"], properties: { x: { type: "integer" }, y: { type: "integer" } } } },
+  { name: "windows_send_keys", description: "Fallback: send a Windows SendKeys sequence to the focused app after phone approval.", inputSchema: { type: "object", required: ["keys"], properties: { keys: { type: "string" } } } },
   { name: "windows_capture_screen", description: "Capture the Windows screen after explicit phone approval.", inputSchema: { type: "object", properties: {} } },
 ]
 
@@ -29,6 +34,11 @@ const routes = {
   windows_open_url: ["host.browser.open", true],
   windows_list_windows: ["host.ui.windows", false],
   windows_focus_window: ["host.ui.focus", true],
+  windows_list_controls: ["host.ui.elements", false],
+  windows_invoke_control: ["host.ui.invoke", true],
+  windows_set_control_value: ["host.ui.setValue", true],
+  windows_click: ["host.ui.click", true],
+  windows_send_keys: ["host.ui.sendKeys", true],
   windows_capture_screen: ["host.screenshot.capture", true],
 }
 

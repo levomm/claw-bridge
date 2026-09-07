@@ -69,6 +69,11 @@ function limited(text, max = MAX_OUTPUT_BYTES) {
   return value.length <= max ? value : `${value.slice(0, max)}\n[output truncated]`
 }
 
+function powershellUtf8(value) {
+  const encoded = Buffer.from(String(value), "utf8").toString("base64")
+  return `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))`
+}
+
 async function runProcess(command, args, options = {}) {
   const timeoutMs = Math.min(Math.max(Number(options.timeoutMs || 60_000), 1_000), MAX_TIMEOUT_MS)
   return new Promise((resolveRun, reject) => {
@@ -122,7 +127,7 @@ async function dispatch(method, params = {}) {
         platform: platform(),
         release: release(),
         roots: ROOTS,
-        capabilities: ["powershell", "files", "apps", "browser", "screenshots", "windows-ui"],
+        capabilities: ["powershell", "files", "apps", "browser", "screenshots", "windows-ui", "mouse", "keyboard"],
       }
     case "host.files.list": {
       const root = selectedRoot(params)
@@ -195,6 +200,52 @@ async function dispatch(method, params = {}) {
       const result = await powershell(`$shell = New-Object -ComObject WScript.Shell; if (-not $shell.AppActivate('${title}')) { exit 2 }`)
       if (result.code !== 0) throw new Error("Window was not found")
       return { focused: true }
+    }
+    case "host.ui.elements": {
+      if (platform() !== "win32") return []
+      const script = "$ErrorActionPreference='Stop'; Add-Type -AssemblyName UIAutomationClient; $root=[System.Windows.Automation.AutomationElement]::RootElement; $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsControlElementProperty,$true); $all=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition); $items=@(); foreach($element in $all){ $name=$element.Current.Name; if($name){ $rect=$element.Current.BoundingRectangle; $items += [pscustomobject]@{name=$name; controlType=$element.Current.ControlType.ProgrammaticName; enabled=$element.Current.IsEnabled; x=[int]$rect.X; y=[int]$rect.Y; width=[int]$rect.Width; height=[int]$rect.Height}; if($items.Count -ge 500){break} } }; @($items) | ConvertTo-Json -Compress"
+      const result = await powershell(script, { timeoutMs: 30_000 })
+      if (result.code !== 0) throw new Error(result.stderr || "Could not inspect Windows controls")
+      return JSON.parse(result.stdout || "[]")
+    }
+    case "host.ui.invoke": {
+      requireApproval(params, method)
+      if (platform() !== "win32") throw new Error("Windows UI Automation is only available on Windows")
+      const name = powershellUtf8(params.name || "")
+      const script = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName UIAutomationClient; $name=${name}; $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,$name); $element=[System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition); if($null -eq $element){throw 'Control not found'}; $pattern=$element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern); $pattern.Invoke()`
+      const result = await powershell(script, { timeoutMs: 30_000 })
+      if (result.code !== 0) throw new Error(result.stderr || "Could not invoke the Windows control")
+      return { invoked: true, name: String(params.name) }
+    }
+    case "host.ui.setValue": {
+      requireApproval(params, method)
+      if (platform() !== "win32") throw new Error("Windows UI Automation is only available on Windows")
+      const name = powershellUtf8(params.name || "")
+      const value = powershellUtf8(params.value || "")
+      const script = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName UIAutomationClient; $name=${name}; $value=${value}; $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,$name); $element=[System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition); if($null -eq $element){throw 'Control not found'}; $pattern=$element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); $pattern.SetValue($value)`
+      const result = await powershell(script, { timeoutMs: 30_000 })
+      if (result.code !== 0) throw new Error(result.stderr || "Could not set the Windows control value")
+      return { changed: true, name: String(params.name) }
+    }
+    case "host.ui.click": {
+      requireApproval(params, method)
+      if (platform() !== "win32") throw new Error("Mouse control is only available on Windows")
+      const x = Number(params.x)
+      const y = Number(params.y)
+      if (!Number.isInteger(x) || !Number.isInteger(y) || Math.abs(x) > 100_000 || Math.abs(y) > 100_000) throw new Error("Valid integer x and y coordinates are required")
+      const script = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class ClawMouse { [DllImport("user32.dll")] public static extern bool SetCursorPos(int X,int Y); [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint dx,uint dy,uint data,UIntPtr extra); }'; [ClawMouse]::SetCursorPos(${x},${y}) | Out-Null; [ClawMouse]::mouse_event(2,0,0,0,[UIntPtr]::Zero); [ClawMouse]::mouse_event(4,0,0,0,[UIntPtr]::Zero)`
+      const result = await powershell(script)
+      if (result.code !== 0) throw new Error(result.stderr || "Mouse click failed")
+      return { clicked: true, x, y }
+    }
+    case "host.ui.sendKeys": {
+      requireApproval(params, method)
+      if (platform() !== "win32") throw new Error("Keyboard control is only available on Windows")
+      const keys = powershellUtf8(params.keys || "")
+      const script = `$shell=New-Object -ComObject WScript.Shell; $shell.SendKeys(${keys})`
+      const result = await powershell(script)
+      if (result.code !== 0) throw new Error(result.stderr || "Keyboard input failed")
+      return { sent: true }
     }
     case "host.screenshot.capture": {
       requireApproval(params, method)

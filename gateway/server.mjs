@@ -266,6 +266,10 @@ const hostApprovalMethods = new Set([
   "host.app.launch",
   "host.browser.open",
   "host.ui.focus",
+  "host.ui.invoke",
+  "host.ui.setValue",
+  "host.ui.click",
+  "host.ui.sendKeys",
   "host.screenshot.capture",
 ])
 
