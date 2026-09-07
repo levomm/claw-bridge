@@ -26,7 +26,7 @@ val runtimeBundleDir = rootProject.layout.projectDirectory.dir("dist/runtime-bun
 val generatedRuntimeAssets = layout.buildDirectory.dir("generated/runtime-assets")
 val clawGatewaySourceDir = rootProject.layout.projectDirectory.dir("../gateway")
 val generatedClawGatewayAssets = layout.buildDirectory.dir("generated/claw-gateway-assets")
-val clawGatewayVersion = "0.4.0"
+val clawGatewayVersion = "0.5.0"
 
 val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAssets") {
     from(
@@ -41,6 +41,7 @@ val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") 
     from(clawGatewaySourceDir) {
         include("server.mjs")
         include("host-mcp.mjs")
+        include("claw-tool.mjs")
         include("package.json")
         include("package-lock.json")
         include("node_modules/ws/**")
@@ -49,6 +50,9 @@ val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") 
     doFirst {
         check(clawGatewaySourceDir.file("node_modules/ws/package.json").asFile.isFile) {
             "Run `npm --prefix gateway ci` before building the native APK."
+        }
+        check(clawGatewaySourceDir.file("claw-tool.mjs").asFile.isFile) {
+            "CLAW remote tool bridge is missing."
         }
     }
 }
@@ -72,13 +76,11 @@ android {
     }
 
     defaultConfig {
-        // Fresh preview package avoids signature conflicts with earlier experimental nativebeta builds.
-        // GitHub Actions caches its debug keystore so later preview APKs can update this installation.
         applicationId = "ee.clawbridge.app.preview"
         minSdk = 28
         targetSdk = if (playBuild) 36 else 28
-        versionCode = 7
-        versionName = "0.5.1-native-alpha"
+        versionCode = 8
+        versionName = "0.6.0-native-alpha"
         providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
 
