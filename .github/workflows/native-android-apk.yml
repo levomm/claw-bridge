@@ -52,7 +52,7 @@ jobs:
       - name: Upload native preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: claw-bridge-native-v0.4.0-alpha
+          name: claw-bridge-native-v0.5.0-alpha
           path: native/app/build/outputs/apk/online/debug/app-online-debug.apk
           if-no-files-found: error
           retention-days: 30
