@@ -4,6 +4,15 @@ Android-first local control panel for Codex, Claude Code and Termux. CLAW Bridge
 
 > CLAW Bridge is an independent project. It is not an official OpenClaw release.
 
+## Native runtime migration
+
+Development of the Termux-free native runtime happens on the
+`mobile-harness-integration` branch. The preview installs beside this beta and
+contains its own private Ubuntu PRoot environment, foreground runtime service,
+encrypted provider storage and on-device build tools. See
+[`docs/NATIVE_ARCHITECTURE.md`](docs/NATIVE_ARCHITECTURE.md) for the staged
+migration and security boundaries.
+
 ## What is included
 
 - Token-authenticated local WebSocket gateway

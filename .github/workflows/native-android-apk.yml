@@ -1,0 +1,49 @@
+name: Native Android APK
+
+on:
+  push:
+    branches: [mobile-harness-integration]
+    paths:
+      - "native/**"
+      - ".gitmodules"
+      - ".github/workflows/native-android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-native-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android native toolchain
+        run: sdkmanager "platforms;android-36" "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Test native runtime
+        working-directory: native
+        run: ./gradlew testOnlineDebugUnitTest --no-daemon
+
+      - name: Build native preview APK
+        working-directory: native
+        run: ./gradlew assembleOnlineDebug --no-daemon
+
+      - name: Upload native preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: claw-bridge-native-v0.4.0-alpha
+          path: native/app/build/outputs/apk/online/debug/app-online-debug.apk
+          if-no-files-found: error
+          retention-days: 30
