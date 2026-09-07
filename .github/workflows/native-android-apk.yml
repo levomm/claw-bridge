@@ -2,7 +2,7 @@ name: Native Android APK
 
 on:
   push:
-    branches: [mobile-harness-integration]
+    branches: [mobile-harness-integration, android-ui-automation-v0.6.2]
     paths:
       - "native/**"
       - "gateway/**"
@@ -82,7 +82,7 @@ jobs:
       - name: Upload native preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: claw-bridge-native-v0.6.1-alpha
+          name: claw-bridge-native-v0.6.3-alpha
           path: native/app/build/outputs/apk/online/debug/app-online-debug.apk
           if-no-files-found: error
           retention-days: 30
