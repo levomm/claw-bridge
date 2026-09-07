@@ -1,0 +1,30 @@
+name: Windows CLAW Host
+
+on:
+  push:
+    branches: [mobile-harness-integration]
+    paths:
+      - "host/**"
+      - ".github/workflows/windows-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows-host:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host/package-lock.json
+      - name: Install dependencies
+        working-directory: host
+        run: npm ci
+      - name: Test CLAW Host
+        working-directory: host
+        run: npm test
