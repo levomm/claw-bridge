@@ -4,14 +4,27 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
+import { createServer as createTcpServer } from "node:net"
 import { WebSocket } from "ws"
+
+async function freePort() {
+  const server = createTcpServer()
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+  const port = typeof address === "object" && address ? address.port : 0
+  await new Promise((resolve) => server.close(resolve))
+  return port
+}
 
 const fixture = await mkdtemp(join(tmpdir(), "claw-host-test-"))
 const data = join(fixture, "data")
 const root = join(fixture, "workspace")
 await mkdir(root)
 await writeFile(join(root, "hello.txt"), "hello")
-const port = 18790
+const port = await freePort()
 const token = "host-test-token"
 const child = spawn(process.execPath, ["server.mjs"], {
   cwd: new URL(".", import.meta.url),
@@ -19,15 +32,26 @@ const child = spawn(process.execPath, ["server.mjs"], {
   stdio: ["ignore", "pipe", "inherit"],
 })
 
-for (let attempt = 0; attempt < 50; attempt += 1) {
+let hostReady = false
+for (let attempt = 0; attempt < 200; attempt += 1) {
   try {
-    if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break
+    if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) {
+      hostReady = true
+      break
+    }
   } catch {}
   await new Promise((resolve) => setTimeout(resolve, 50))
 }
+if (!hostReady) throw new Error("CLAW Host did not start within 10 seconds")
 
 test.after(async () => {
-  child.kill()
+  if (!child.killed) child.kill()
+  if (child.exitCode === null) {
+    await Promise.race([
+      new Promise((resolve) => child.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ])
+  }
   await rm(fixture, { recursive: true, force: true })
 })
 
