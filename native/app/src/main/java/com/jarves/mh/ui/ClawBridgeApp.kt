@@ -8,15 +8,15 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
+import com.jarves.mh.data.ConnectionVault
 
 private enum class ClawRoot(val label: String) {
     HOME("Home"), CHAT("Chat"), CODEX("Codex"), TERMINAL("Terminal"), CONNECTIONS("Connections"), SETTINGS("Settings")
@@ -26,8 +26,7 @@ private enum class ClawRoot(val label: String) {
 fun ClawBridgeApp(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    // Keep onboarding/runtime setup and active project workspace exactly as the proven native harness.
-    // The CLAW shell takes over only after runtime setup and while no project is open.
+    // Preserve the proven onboarding/runtime setup and full project workspace.
     if (state.startupStage != StartupStage.READY || state.activeProject != null) {
         PocketDevApp(viewModel)
         return
@@ -159,7 +158,7 @@ private fun CodexWorkspaceLauncher(viewModel: MainViewModel) {
             onClick = { viewModel.createQuickProject() },
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Start quick workspace") }
-        Text("Named projects are available from the project workspace after opening a quick workspace or from the legacy Projects view during this preview.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("The workspace keeps the existing project runtime while the Codex CLI connection is available independently through Chat and Terminal.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -193,13 +192,16 @@ private fun PocketTerminalSurface(viewModel: MainViewModel) {
 private fun ConnectionsScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("claw_connections", 0) }
+    val vault = remember { ConnectionVault(context) }
     val running by viewModel.isTerminalRunning.collectAsStateWithLifecycle()
     val live by viewModel.terminalLiveOutput.collectAsStateWithLifecycle()
     val lines by viewModel.terminalLines.collectAsStateWithLifecycle()
 
+    var windowsUrl by rememberSaveable { mutableStateOf(viewModel.windowsHostUrl()) }
+    var windowsToken by rememberSaveable { mutableStateOf(viewModel.getSavedWindowsHostToken()) }
     var server by rememberSaveable { mutableStateOf(prefs.getString("server", "") ?: "") }
     var serverUser by rememberSaveable { mutableStateOf(prefs.getString("server_user", "") ?: "") }
-    var telegramToken by rememberSaveable { mutableStateOf(prefs.getString("telegram_token", "") ?: "") }
+    var telegramToken by rememberSaveable { mutableStateOf(vault.get("telegram_bot_token").orEmpty()) }
     var telegramChat by rememberSaveable { mutableStateOf(prefs.getString("telegram_chat", "") ?: "") }
 
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -219,7 +221,19 @@ private fun ConnectionsScreen(viewModel: MainViewModel) {
         }
 
         ConnectionCard("Windows Host", "PowerShell, files, browser and Windows UI automation") {
-            Text("Windows Host remains configured through the existing CLAW Host settings and approval-gated gateway.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(windowsUrl, { windowsUrl = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Host URL") }, placeholder = { Text("http://192.168.1.20:8765") })
+            OutlinedTextField(
+                windowsToken,
+                { windowsToken = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Pairing token") },
+                visualTransformation = PasswordVisualTransformation(),
+            )
+            Button(
+                onClick = { viewModel.saveWindowsHost(windowsUrl, windowsToken) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Save Windows Host") }
+            Text("High-impact Windows actions still pass through the CLAW approval model.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         ConnectionCard("Server", "SSH into a remote Linux server") {
@@ -238,11 +252,18 @@ private fun ConnectionsScreen(viewModel: MainViewModel) {
         }
 
         ConnectionCard("Telegram", "Send results and test the configured bot") {
-            OutlinedTextField(telegramToken, { telegramToken = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Bot token") })
+            OutlinedTextField(
+                telegramToken,
+                { telegramToken = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Bot token") },
+                visualTransformation = PasswordVisualTransformation(),
+            )
             OutlinedTextField(telegramChat, { telegramChat = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Chat ID") })
             Button(
                 onClick = {
-                    prefs.edit().putString("telegram_token", telegramToken).putString("telegram_chat", telegramChat).apply()
+                    vault.put("telegram_bot_token", telegramToken)
+                    prefs.edit().putString("telegram_chat", telegramChat).apply()
                     val token = telegramToken.replace("'", "")
                     val chat = telegramChat.replace("'", "")
                     viewModel.runTerminalCommand("curl -fsS -X POST 'https://api.telegram.org/bot$token/sendMessage' --data-urlencode 'chat_id=$chat' --data-urlencode 'text=CLAW Bridge connected'")
@@ -250,6 +271,7 @@ private fun ConnectionsScreen(viewModel: MainViewModel) {
                 enabled = telegramToken.isNotBlank() && telegramChat.isNotBlank() && !running,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save & test Telegram") }
+            Text("Bot token is encrypted with Android Keystore.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         if (live.isNotBlank() || lines.lastOrNull()?.output?.isNotBlank() == true) {
