@@ -34,25 +34,20 @@ jobs:
           cache: npm
 
       - name: Restore stable Android preview signing key
+        id: preview-signing-key
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
           key: claw-bridge-native-debug-keystore-v1
 
-      - name: Ensure Android debug keystore exists
+      - name: Require the stable Android preview signing key
         run: |
-          mkdir -p ~/.android
-          if [ ! -f ~/.android/debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore ~/.android/debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=OSX01,C=EE"
+          if [ "${{ steps.preview-signing-key.outputs.cache-hit }}" != "true" ] || [ ! -f "$HOME/.android/debug.keystore" ]; then
+            echo "Stable preview signing key is unavailable; refusing to publish an APK with a new identity." >&2
+            exit 1
           fi
+          echo "MH_PREVIEW_STORE_FILE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
 
       - name: Install gateway dependencies
         run: npm --prefix gateway ci
@@ -79,10 +74,19 @@ jobs:
         working-directory: native
         run: ./gradlew assembleOnlineDebug --no-daemon
 
+      - name: Verify native preview signing identity
+        run: |
+          APK="native/app/build/outputs/apk/online/debug/app-online-debug.apk"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          EXPECTED="$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)"
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          test -n "$EXPECTED"
+          test "$ACTUAL" = "$EXPECTED"
+
       - name: Upload native preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: claw-bridge-native-v0.6.5-alpha
+          name: claw-bridge-native-v0.6.6-alpha
           path: native/app/build/outputs/apk/online/debug/app-online-debug.apk
           if-no-files-found: error
           retention-days: 30

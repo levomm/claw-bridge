@@ -20,6 +20,7 @@ val uploadStorePassword = providers.environmentVariable("MH_UPLOAD_STORE_PASSWOR
 val uploadKeyAlias = providers.environmentVariable("MH_UPLOAD_KEY_ALIAS").orNull
 val uploadKeyPassword = providers.environmentVariable("MH_UPLOAD_KEY_PASSWORD").orNull
 val hasUploadSigning = listOf(uploadStorePath, uploadStorePassword, uploadKeyAlias, uploadKeyPassword).all { !it.isNullOrBlank() }
+val previewStorePath = providers.environmentVariable("MH_PREVIEW_STORE_FILE").orNull
 val runtimeReleaseBaseUrl = "https://github.com/techjarves/Mobile-Harness/releases/download/runtime-2026.09.4"
 val appUpdateManifestUrl = "https://github.com/levomm/openclaw-2/releases/latest/download/claw-bridge-update.json"
 val runtimeBundleDir = rootProject.layout.projectDirectory.dir("dist/runtime-bundles")
@@ -69,6 +70,14 @@ android {
     ndkVersion = providers.gradleProperty("mhNdkVersion").orNull ?: "26.1.10909125"
 
     signingConfigs {
+        if (!previewStorePath.isNullOrBlank()) {
+            create("preview") {
+                storeFile = rootProject.file(checkNotNull(previewStorePath))
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (hasUploadSigning) {
             create("upload") {
                 storeFile = rootProject.file(checkNotNull(uploadStorePath))
@@ -83,8 +92,8 @@ android {
         applicationId = "ee.clawbridge.app.native"
         minSdk = 28
         targetSdk = if (playBuild) 36 else 28
-        versionCode = 13
-        versionName = "0.6.5-native-alpha"
+        versionCode = 14
+        versionName = "0.6.6-native-alpha"
         providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
 
@@ -120,6 +129,7 @@ android {
 
     buildTypes {
         debug {
+            if (!previewStorePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("preview")
             buildConfigField("String", "TEST_OPENROUTER_API_KEY", buildConfigString(testSecrets.getProperty("openrouter.apiKey", "")))
         }
         release {
