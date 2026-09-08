@@ -564,7 +564,9 @@ class ClawCodexController(context: Context) {
                     "/usr/bin/env", "bash", "-lc",
                     "command -v ssh-keygen >/dev/null 2>&1 || { apt-get update && apt-get install -y --no-install-recommends openssh-client; }; mkdir -p /root/.ssh; chmod 700 /root/.ssh; test -f /root/.ssh/id_ed25519 || ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519; cat /root/.ssh/id_ed25519.pub"
                 ),
-                useAgentProxy = false,
+                // Package installation must use the Android IPv4 bridge. Without it,
+                // Ubuntu PRoot cannot resolve ports.ubuntu.com on affected devices.
+                useAgentProxy = true,
             ) { live -> _state.update { it.copy(workspaceLiveOutput = live.takeLast(2400)) } }
             _state.update {
                 it.copy(
