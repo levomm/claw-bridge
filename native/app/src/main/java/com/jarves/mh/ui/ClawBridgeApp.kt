@@ -92,6 +92,7 @@ import com.jarves.mh.model.ProviderProfile
 import com.jarves.mh.runtime.ClawCodexController
 import com.jarves.mh.runtime.ClawCodexState
 import com.jarves.mh.runtime.CodexAuthState
+import com.jarves.mh.runtime.CodexInstallState
 import com.jarves.mh.runtime.GatewayService
 
 private enum class ClawRoot(val label: String) {
