@@ -671,7 +671,17 @@ private fun ClawConnectionsScreen(viewModel: MainViewModel, controller: ClawCode
                 onClick = controller::connectChatGpt,
                 enabled = !codexState.authRunning,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (codexState.authRunning) "Waiting for authorization…" else if (codexState.authState == CodexAuthState.CONNECTED) "Reconnect ChatGPT / Codex" else "Connect ChatGPT / Codex") }
+            ) {
+                Text(
+                    when {
+                        codexState.installState == CodexInstallState.INSTALLING -> "Installing Codex…"
+                        codexState.authState == CodexAuthState.DEVICE_PENDING -> "Waiting for authorization…"
+                        codexState.authRunning -> "Starting secure login…"
+                        codexState.authState == CodexAuthState.CONNECTED -> "Reconnect ChatGPT / Codex"
+                        else -> "Connect ChatGPT / Codex"
+                    }
+                )
+            }
             if (codexState.authRunning) {
                 OutlinedButton(onClick = controller::cancelLogin, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Stop, null)

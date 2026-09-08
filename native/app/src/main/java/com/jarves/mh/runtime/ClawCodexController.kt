@@ -120,7 +120,7 @@ class ClawCodexController(context: Context) {
     fun cancelLogin() {
         if (authJob?.isActive != true && !_state.value.authRunning) return
         authCancellationRequested = true
-        ActiveCodexProcess.auth?.destroy()
+        stopAuthProcess()
         updateRuntimeState {
             it.copy(
                 authRunning = false,
@@ -163,8 +163,8 @@ class ClawCodexController(context: Context) {
         updateRuntimeState {
             it.copy(
                 authRunning = true,
-                authState = CodexAuthState.DEVICE_PENDING,
-                deviceAuthExpiresAtMillis = defaultExpiry,
+                authState = CodexAuthState.CHECKING,
+                deviceAuthExpiresAtMillis = null,
                 lastError = null,
             )
         }
@@ -193,32 +193,49 @@ class ClawCodexController(context: Context) {
         }
 
         var connected = false
+        var promptTimedOut = false
         while (!loginDeferred.isCompleted && !authCancellationRequested) {
             if (System.currentTimeMillis() >= defaultExpiry) break
             delay(LOGIN_POLL_INTERVAL_MS)
             val status = queryLoginStatus()
             if (status.connected) {
                 connected = true
-                ActiveCodexProcess.auth?.destroy()
+                stopAuthProcess()
+                break
+            }
+            if (
+                CodexRuntimeLogic.devicePromptTimedOut(
+                    startedAtMillis = startedAt,
+                    nowMillis = System.currentTimeMillis(),
+                    deviceCode = _state.value.deviceAuthCode,
+                    timeoutMillis = DEVICE_AUTH_PROMPT_TIMEOUT_MS,
+                )
+            ) {
+                promptTimedOut = true
+                stopAuthProcess()
                 break
             }
         }
 
-        if (!loginDeferred.isCompleted) ActiveCodexProcess.auth?.destroy()
+        if (!loginDeferred.isCompleted) stopAuthProcess()
         val login = runCatching { loginDeferred.await() }
             .getOrElse { CommandResult(1, "", CodexRuntimeLogic.sanitize(it.message.orEmpty()).ifBlank { "Login process stopped" }) }
         val finalStatus = queryLoginStatus()
         connected = connected || finalStatus.connected
-        val finalAuthState = CodexRuntimeLogic.nextAuthState(
-            current = _state.value.authState,
-            connected = connected,
-            nowMillis = System.currentTimeMillis(),
-            expiresAtMillis = defaultExpiry,
-            cancelled = authCancellationRequested,
-            processFinished = true,
-            processExitCode = login.exitCode,
-            output = login.output,
-        )
+        val finalAuthState = when {
+            connected -> CodexAuthState.CONNECTED
+            authCancellationRequested -> CodexAuthState.CANCELLED
+            promptTimedOut || (_state.value.deviceAuthCode == null && login.exitCode == 0) -> CodexAuthState.ERROR
+            else -> CodexRuntimeLogic.nextAuthState(
+                current = _state.value.authState,
+                connected = false,
+                nowMillis = System.currentTimeMillis(),
+                expiresAtMillis = defaultExpiry,
+                processFinished = true,
+                processExitCode = login.exitCode,
+                output = login.output,
+            )
+        }
         updateRuntimeState {
             it.copy(
                 authRunning = false,
@@ -227,7 +244,13 @@ class ClawCodexController(context: Context) {
                 deviceAuthCode = if (finalAuthState == CodexAuthState.DEVICE_PENDING) it.deviceAuthCode else null,
                 deviceAuthExpiresAtMillis = if (finalAuthState == CodexAuthState.DEVICE_PENDING) defaultExpiry else null,
                 lastError = when (finalAuthState) {
-                    CodexAuthState.ERROR -> login.error ?: "ChatGPT login failed"
+                    CodexAuthState.ERROR -> when {
+                        promptTimedOut -> "Codex did not return a device login URL and code within 45 seconds."
+                        _state.value.deviceAuthCode == null -> login.error ?: login.output.takeLast(1_500).ifBlank {
+                            "Codex login ended before returning a device URL and code."
+                        }
+                        else -> login.error ?: "ChatGPT login failed"
+                    }
                     else -> null
                 },
             )
@@ -249,6 +272,7 @@ class ClawCodexController(context: Context) {
             workspace = chatDir,
             guestWorkspace = "/workspace/claw-chat",
             command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.PRIMARY_INSTALL),
+            useAgentProxy = false,
         ) { }
         val afterPrimary = probeCodex()
         if (afterPrimary.installed) {
@@ -260,6 +284,7 @@ class ClawCodexController(context: Context) {
             workspace = chatDir,
             guestWorkspace = "/workspace/claw-chat",
             command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.FALLBACK_INSTALL),
+            useAgentProxy = false,
         ) { }
         val finalProbe = CodexRuntimeLogic.finalInstallProbe(
             primaryInstallExitCode = primary.exitCode,
@@ -315,7 +340,7 @@ class ClawCodexController(context: Context) {
                 return
             }
             val login = queryLoginStatus()
-            if (login.connected) ActiveCodexProcess.auth?.destroy()
+            if (login.connected) stopAuthProcess()
             updateRuntimeState {
                 val auth = when {
                     login.connected -> CodexAuthState.CONNECTED
@@ -336,12 +361,33 @@ class ClawCodexController(context: Context) {
     }
 
     private suspend fun probeCodex(): CodexProbe {
+        val installedRuntime = runCatching { installer.installedRuntime() }.getOrNull()
+        val existingCandidate = installedRuntime?.rootfs?.let(::existingCodexCandidate)
         val result = runCommand(
             workspace = chatDir,
             guestWorkspace = "/workspace/claw-chat",
             command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.PROBE),
         ) { }
-        return CodexRuntimeLogic.parseProbe(result.exitCode, result.output)
+        CodexRuntimeLogic.parseProbe(result.exitCode, result.output).takeIf(CodexProbe::installed)?.let { return it }
+
+        // A manually installed npm binary can exist even when a shell lookup is affected by
+        // stale login-shell state. Verify the real rootfs candidate directly before reinstalling.
+        if (existingCandidate != null) {
+            val direct = runCommand(
+                workspace = chatDir,
+                guestWorkspace = "/workspace/claw-chat",
+                command = listOf(existingCandidate, "--version"),
+            ) { }
+            CodexRuntimeLogic.parseVersionProbe(direct.exitCode, existingCandidate, direct.output)
+                .takeIf(CodexProbe::installed)
+                ?.let { return it }
+        }
+        return CodexProbe(installed = false)
+    }
+
+    private fun existingCodexCandidate(rootfs: File): String? = CODEX_CANDIDATES.firstOrNull { guestPath ->
+        val hostPath = File(rootfs, guestPath.removePrefix("/"))
+        hostPath.exists() || runCatching { java.nio.file.Files.isSymbolicLink(hostPath.toPath()) }.getOrDefault(false)
     }
 
     private suspend fun queryLoginStatus(): LoginStatusResult {
@@ -557,6 +603,7 @@ class ClawCodexController(context: Context) {
         guestWorkspace: String,
         command: List<String>,
         processSlot: ProcessSlot = ProcessSlot.NONE,
+        useAgentProxy: Boolean = true,
         onOutput: (String) -> Unit,
     ): CommandResult = withContext(Dispatchers.IO) {
         if (!installer.isInstalled()) return@withContext CommandResult(1, "", "Local Linux runtime is not installed yet.")
@@ -567,7 +614,7 @@ class ClawCodexController(context: Context) {
                 proot = runtime.proot,
                 rootfs = runtime.rootfs,
                 workspace = workspace,
-                environment = runtimeEnvironment(),
+                environment = runtimeEnvironment(useAgentProxy),
                 guestCommand = command,
                 guestWorkspacePath = guestWorkspace,
             )
@@ -604,7 +651,10 @@ class ClawCodexController(context: Context) {
                 }
             }
             val exit = process.waitFor()
-            val output = CodexRuntimeLogic.sanitize(captured.toString()).trim()
+            // Always read the completed capture once more. Very short commands such as
+            // `codex --version` can exit between the isAlive and file-length checks.
+            val finalCapture = runCatching { native.outputFile.readText() }.getOrDefault(captured.toString())
+            val output = CodexRuntimeLogic.sanitize(finalCapture).trim()
             CommandResult(exit, output, if (exit == 0) null else output.takeLast(2000).ifBlank { "Codex exited with code $exit" })
         } finally {
             clearActiveProcess(processSlot, process)
@@ -621,15 +671,26 @@ class ClawCodexController(context: Context) {
         }
     }
 
-    private fun runtimeEnvironment(): Map<String, String> = buildMap {
+    private fun stopAuthProcess() {
+        val process = ActiveCodexProcess.auth ?: return
+        runCatching { process.destroy() }
+        scope.launch {
+            delay(750)
+            if (process.isAlive) runCatching { process.destroyForcibly() }
+        }
+    }
+
+    private fun runtimeEnvironment(useAgentProxy: Boolean): Map<String, String> = buildMap {
         put("PATH", CodexRuntimeCommands.GUEST_PATH)
         put("CLAW_APPROVAL_DIR", "/pocket-bridge")
-        put("HTTP_PROXY", "http://127.0.0.1:8788")
-        put("HTTPS_PROXY", "http://127.0.0.1:8788")
-        put("http_proxy", "http://127.0.0.1:8788")
-        put("https_proxy", "http://127.0.0.1:8788")
-        put("NO_PROXY", "127.0.0.1,localhost,::1")
-        put("no_proxy", "127.0.0.1,localhost,::1")
+        if (useAgentProxy) {
+            put("HTTP_PROXY", "http://127.0.0.1:8788")
+            put("HTTPS_PROXY", "http://127.0.0.1:8788")
+            put("http_proxy", "http://127.0.0.1:8788")
+            put("https_proxy", "http://127.0.0.1:8788")
+            put("NO_PROXY", "127.0.0.1,localhost,::1")
+            put("no_proxy", "127.0.0.1,localhost,::1")
+        }
 
         val windowsToken = apiVault.get(GatewayService.WINDOWS_HOST_TOKEN_KEY).orEmpty()
         if (appPreferences.windowsHostUrl.isNotBlank() && windowsToken.isNotBlank()) {
@@ -778,7 +839,9 @@ class ClawCodexController(context: Context) {
 
     companion object {
         private const val CODEX_BINARY = "/usr/local/bin/codex"
+        private val CODEX_CANDIDATES = listOf("/usr/local/bin/codex", "/usr/bin/codex", "/bin/codex")
         private const val LOGIN_POLL_INTERVAL_MS = 2_000L
+        private const val DEVICE_AUTH_PROMPT_TIMEOUT_MS = 45_000L
         private const val DEVICE_AUTH_TIMEOUT_MS = 15L * 60L * 1_000L
         private const val STATE_REFRESH_INTERVAL_MS = 15_000L
         private const val MAX_CHAT_ENTRIES = 40

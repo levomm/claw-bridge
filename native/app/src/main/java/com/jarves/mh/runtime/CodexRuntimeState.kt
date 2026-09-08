@@ -30,7 +30,16 @@ internal object CodexRuntimeCommands {
 
     val PROBE = """
         export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-        codex_path="${'$'}(command -v codex 2>/dev/null)" || exit 127
+        codex_path=""
+        for candidate in /usr/local/bin/codex /usr/bin/codex /bin/codex; do
+          if test -f "${'$'}candidate" || test -x "${'$'}candidate"; then
+            codex_path="${'$'}candidate"
+            break
+          fi
+        done
+        if test -z "${'$'}codex_path"; then
+          codex_path="${'$'}(command -v codex 2>/dev/null)" || exit 127
+        fi
         test -n "${'$'}codex_path" || exit 127
         printf '__CLAW_CODEX_PATH__=%s\n' "${'$'}codex_path"
         "${'$'}codex_path" --version
@@ -79,6 +88,15 @@ internal object CodexRuntimeLogic {
         )
     }
 
+    fun parseVersionProbe(exitCode: Int, path: String, rawOutput: String): CodexProbe {
+        val version = versionPattern.find(sanitize(rawOutput))?.groupValues?.getOrNull(1)
+        return CodexProbe(
+            installed = exitCode == 0 && path.isNotBlank() && !version.isNullOrBlank(),
+            path = path.takeIf { exitCode == 0 && !version.isNullOrBlank() },
+            version = version,
+        )
+    }
+
     /** Installation is decided only by the newest real probe, never by an older npm exit code. */
     fun finalInstallProbe(
         primaryInstallExitCode: Int?,
@@ -111,6 +129,9 @@ internal object CodexRuntimeLogic {
             ?: return null
         return DeviceAuthorization(url = url, code = code)
     }
+
+    fun devicePromptTimedOut(startedAtMillis: Long, nowMillis: Long, deviceCode: String?, timeoutMillis: Long): Boolean =
+        deviceCode.isNullOrBlank() && nowMillis - startedAtMillis >= timeoutMillis
 
     fun nextAuthState(
         current: CodexAuthState,

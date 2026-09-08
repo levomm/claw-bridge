@@ -179,7 +179,13 @@ fun ClawAiSetupScreen(viewModel: MainViewModel) {
                         if (codexState.authRunning) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                             Spacer(Modifier.width(9.dp))
-                            Text("Waiting for authorization…")
+                            Text(
+                                when {
+                                    codexState.installState == com.jarves.mh.runtime.CodexInstallState.INSTALLING -> "Installing Codex…"
+                                    codexState.authState == CodexAuthState.DEVICE_PENDING -> "Waiting for authorization…"
+                                    else -> "Starting secure login…"
+                                }
+                            )
                         } else {
                             Icon(Icons.Default.Key, null)
                             Spacer(Modifier.width(8.dp))

@@ -34,6 +34,37 @@ class CodexRuntimeStateTest {
         assertEquals(CodexProbe(true, "/usr/local/bin/codex", "0.153.4"), probe)
         assertTrue(CodexRuntimeCommands.PROBE.contains("/usr/local/bin"))
         assertTrue(CodexRuntimeCommands.PROBE.contains("command -v codex"))
+        assertTrue(CodexRuntimeCommands.PROBE.contains("/usr/local/bin/codex"))
+    }
+
+    @Test
+    fun directUsrLocalCandidateRecoversWhenShellLookupFailed() {
+        val probe = CodexRuntimeLogic.parseVersionProbe(
+            0,
+            "/usr/local/bin/codex",
+            "codex-cli 0.153.4\n",
+        )
+
+        assertEquals(CodexProbe(true, "/usr/local/bin/codex", "0.153.4"), probe)
+    }
+
+    @Test
+    fun directCandidateStillRequiresSuccessfulVersionCommand() {
+        val probe = CodexRuntimeLogic.parseVersionProbe(
+            1,
+            "/usr/local/bin/codex",
+            "codex-cli 0.153.4\n",
+        )
+
+        assertFalse(probe.installed)
+        assertNull(probe.path)
+    }
+
+    @Test
+    fun deviceLoginCannotWaitForeverWithoutAUrlAndCode() {
+        assertFalse(CodexRuntimeLogic.devicePromptTimedOut(1_000, 45_999, null, 45_000))
+        assertTrue(CodexRuntimeLogic.devicePromptTimedOut(1_000, 46_000, null, 45_000))
+        assertFalse(CodexRuntimeLogic.devicePromptTimedOut(1_000, 90_000, "ABCD-EFGH", 45_000))
     }
 
     @Test
