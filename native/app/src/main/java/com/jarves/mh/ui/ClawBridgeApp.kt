@@ -1,6 +1,8 @@
 package com.jarves.mh.ui
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -74,6 +76,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -87,6 +91,7 @@ import com.jarves.mh.model.ProviderKind
 import com.jarves.mh.model.ProviderProfile
 import com.jarves.mh.runtime.ClawCodexController
 import com.jarves.mh.runtime.ClawCodexState
+import com.jarves.mh.runtime.CodexAuthState
 import com.jarves.mh.runtime.GatewayService
 
 private enum class ClawRoot(val label: String) {
@@ -130,10 +135,11 @@ fun ClawBridgeApp(viewModel: MainViewModel) {
         onDispose { controller.close() }
     }
     val codexState by controller.state.collectAsStateWithLifecycle()
+    val terminalRunning by viewModel.isTerminalRunning.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(ClawRoot.HOME) }
 
-    LaunchedEffect(Unit) {
-        controller.checkLogin()
+    LaunchedEffect(screen, terminalRunning) {
+        if (!terminalRunning) controller.checkLogin()
     }
 
     Scaffold(
@@ -289,7 +295,7 @@ private fun ClawHome(
         )
         StatusCard(
             title = "ChatGPT / Codex",
-            value = codexState.authStatus.lines().lastOrNull().orEmpty().ifBlank { "Not checked" },
+            value = codexState.authStatus.ifBlank { "Not checked" },
             icon = Icons.Default.Code,
         )
         StatusCard(
@@ -371,6 +377,9 @@ private fun ClawChatScreen(controller: ClawCodexController, state: ClawCodexStat
                 Icon(Icons.Default.Delete, contentDescription = "Clear chat")
             }
         }
+        if (state.authState != CodexAuthState.CONNECTED) {
+            Text("ChatGPT / Codex is not connected.", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+        }
         Spacer(Modifier.height(8.dp))
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -428,7 +437,7 @@ private fun ClawChatScreen(controller: ClawCodexController, state: ClawCodexStat
                 controller.sendChat(prompt)
                 prompt = ""
             },
-            enabled = prompt.isNotBlank() && !state.chatRunning,
+            enabled = prompt.isNotBlank() && !state.chatRunning && state.authState == CodexAuthState.CONNECTED,
             modifier = Modifier.fillMaxWidth().height(48.dp),
         ) {
             Icon(Icons.Default.Send, null)
@@ -449,6 +458,10 @@ private fun ClawCodexScreen(viewModel: MainViewModel, controller: ClawCodexContr
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (state.authState != CodexAuthState.CONNECTED) {
+            Spacer(Modifier.height(4.dp))
+            Text("ChatGPT / Codex is not connected.", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+        }
         Spacer(Modifier.height(10.dp))
         Surface(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -485,7 +498,7 @@ private fun ClawCodexScreen(viewModel: MainViewModel, controller: ClawCodexContr
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = { controller.runWorkspaceTask(task); task = "" },
-                enabled = task.isNotBlank() && !state.workspaceRunning,
+                enabled = task.isNotBlank() && !state.workspaceRunning && state.authState == CodexAuthState.CONNECTED,
                 modifier = Modifier.weight(1f).height(48.dp),
             ) {
                 Icon(Icons.Default.PlayArrow, null)
@@ -598,6 +611,7 @@ private fun ClawApprovalsScreen(controller: ClawCodexController, state: ClawCode
 @Composable
 private fun ClawConnectionsScreen(viewModel: MainViewModel, controller: ClawCodexController, codexState: ClawCodexState) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val prefs = remember { context.getSharedPreferences("claw_connections", Context.MODE_PRIVATE) }
     val vault = remember { ConnectionVault(context) }
     val terminalRunning by viewModel.isTerminalRunning.collectAsStateWithLifecycle()
@@ -617,17 +631,60 @@ private fun ClawConnectionsScreen(viewModel: MainViewModel, controller: ClawCode
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ConnectionCard("ChatGPT / Codex", "One ChatGPT login powers both Chat and Codex", Icons.Default.Code) {
-            Text(codexState.authStatus.takeLast(2000), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(codexState.authStatus, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (codexState.authState == CodexAuthState.DEVICE_PENDING) {
+                codexState.deviceAuthUrl?.let { url ->
+                    Text(url, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                }
+                codexState.deviceAuthCode?.let { code ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                    ) {
+                        Text(
+                            code,
+                            modifier = Modifier.padding(12.dp),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                codexState.deviceAuthUrl?.let { url ->
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Open sign-in") }
+                        OutlinedButton(
+                            onClick = { clipboard.setText(AnnotatedString(code)) },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Copy code") }
+                    }
+                }
+            }
             Button(
                 onClick = controller::connectChatGpt,
                 enabled = !codexState.authRunning,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (codexState.authRunning) "Connecting…" else "Connect ChatGPT / Codex") }
-            OutlinedButton(onClick = controller::checkLogin, enabled = !codexState.authRunning, modifier = Modifier.fillMaxWidth()) {
+            ) { Text(if (codexState.authRunning) "Waiting for authorization…" else if (codexState.authState == CodexAuthState.CONNECTED) "Reconnect ChatGPT / Codex" else "Connect ChatGPT / Codex") }
+            if (codexState.authRunning) {
+                OutlinedButton(onClick = controller::cancelLogin, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Stop, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Cancel login")
+                }
+            }
+            OutlinedButton(onClick = controller::checkLogin, enabled = !codexState.statusCheckRunning, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Refresh, null)
                 Spacer(Modifier.width(6.dp))
-                Text("Check login")
+                Text(if (codexState.statusCheckRunning) "Checking…" else "Check login")
             }
+            codexState.lastError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
         }
 
         ConnectionCard("Windows Host", "PowerShell, files, browser and Windows UI automation", Icons.Default.Computer) {

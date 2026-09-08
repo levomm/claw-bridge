@@ -33,6 +33,12 @@ const sessions = new Map()
 const runs = new Map()
 const clients = new Set()
 const proxyDomainSuffixes = ["openai.com", "chatgpt.com", "oaiusercontent.com", "oaistatic.com", "anthropic.com", "claude.ai"]
+const agentPath = [...new Set([
+  ...(process.env.PATH || "").split(":").filter(Boolean),
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+])].join(":")
 
 function now() {
   return new Date().toISOString()
@@ -171,12 +177,13 @@ function proxyHostAllowed(host) {
 }
 
 function agentEnvironment() {
-  if (!IPV4_PROXY_ENABLED) return process.env
+  const base = { ...process.env, PATH: agentPath }
+  if (!IPV4_PROXY_ENABLED) return base
   const bypass = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost", "::1"]
     .filter(Boolean)
     .join(",")
   return {
-    ...process.env,
+    ...base,
     HTTP_PROXY: IPV4_PROXY_URL,
     HTTPS_PROXY: IPV4_PROXY_URL,
     http_proxy: IPV4_PROXY_URL,

@@ -66,6 +66,7 @@ class GatewayService : Service() {
                 val connectionPrefs = getSharedPreferences("claw_connections", Context.MODE_PRIVATE)
 
                 val environment = buildMap {
+                    put("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
                     put("CLAW_NATIVE_ANDROID", "1")
                     put("CLAW_HOST", "127.0.0.1")
                     put("CLAW_PORT", "8787")

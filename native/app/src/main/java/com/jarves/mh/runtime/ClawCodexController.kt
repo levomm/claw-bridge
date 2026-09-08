@@ -9,7 +9,9 @@ import java.io.RandomAccessFile
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -39,6 +43,14 @@ data class ClawApprovalRequest(
 data class ClawCodexState(
     val authStatus: String = "Not checked",
     val authRunning: Boolean = false,
+    val statusCheckRunning: Boolean = false,
+    val installState: CodexInstallState = CodexInstallState.UNKNOWN,
+    val authState: CodexAuthState = CodexAuthState.UNKNOWN,
+    val codexPath: String? = null,
+    val codexVersion: String? = null,
+    val deviceAuthUrl: String? = null,
+    val deviceAuthCode: String? = null,
+    val deviceAuthExpiresAtMillis: Long? = null,
     val chatRunning: Boolean = false,
     val workspaceRunning: Boolean = false,
     val chatLiveOutput: String = "",
@@ -69,67 +81,302 @@ class ClawCodexController(context: Context) {
     private val historyFile = File(appContext.filesDir, "claw-chat-history.json")
     private val bridgeDir = File(appContext.filesDir, "runtime-bridge").apply { mkdirs() }
     private val seenApprovals = mutableSetOf<String>()
+    private val statusMutex = Mutex()
+    @Volatile private var authJob: Job? = null
+    @Volatile private var authCancellationRequested = false
 
     private val _state = MutableStateFlow(ClawCodexState(chat = loadHistory()))
     val state: StateFlow<ClawCodexState> = _state.asStateFlow()
 
     init {
         scope.launch { watchApprovals() }
+        scope.launch {
+            refreshRuntimeState(showChecking = true)
+            while (true) {
+                delay(STATE_REFRESH_INTERVAL_MS)
+                if (!_state.value.authRunning && !_state.value.chatRunning && !_state.value.workspaceRunning) {
+                    refreshRuntimeState(showChecking = false)
+                }
+            }
+        }
     }
 
     fun close() {
+        ActiveCodexProcess.auth?.destroy()
+        ActiveCodexProcess.agent?.destroy()
         scope.cancel()
     }
 
     fun checkLogin() {
-        if (_state.value.authRunning) return
-        _state.update { it.copy(authRunning = true, authStatus = "Checking ChatGPT login…", lastError = null) }
-        scope.launch {
-            val result = runCommand(
+        scope.launch { refreshRuntimeState(showChecking = true) }
+    }
+
+    fun connectChatGpt() {
+        if (authJob?.isActive == true) return
+        authCancellationRequested = false
+        authJob = scope.launch { runDeviceAuthLifecycle() }
+    }
+
+    fun cancelLogin() {
+        if (authJob?.isActive != true && !_state.value.authRunning) return
+        authCancellationRequested = true
+        ActiveCodexProcess.auth?.destroy()
+        updateRuntimeState {
+            it.copy(
+                authRunning = false,
+                authState = CodexAuthState.CANCELLED,
+                deviceAuthUrl = null,
+                deviceAuthCode = null,
+                deviceAuthExpiresAtMillis = null,
+                lastError = null,
+            )
+        }
+    }
+
+    private suspend fun runDeviceAuthLifecycle() {
+        updateRuntimeState {
+            it.copy(
+                authRunning = true,
+                authState = CodexAuthState.CHECKING,
+                deviceAuthUrl = null,
+                deviceAuthCode = null,
+                deviceAuthExpiresAtMillis = null,
+                lastError = null,
+            )
+        }
+
+        if (!ensureCodexInstalled()) {
+            updateRuntimeState { it.copy(authRunning = false) }
+            return
+        }
+
+        val existingLogin = queryLoginStatus()
+        if (existingLogin.connected) {
+            updateRuntimeState {
+                it.copy(authRunning = false, authState = CodexAuthState.CONNECTED, lastError = null)
+            }
+            return
+        }
+
+        val startedAt = System.currentTimeMillis()
+        val defaultExpiry = startedAt + DEVICE_AUTH_TIMEOUT_MS
+        updateRuntimeState {
+            it.copy(
+                authRunning = true,
+                authState = CodexAuthState.DEVICE_PENDING,
+                deviceAuthExpiresAtMillis = defaultExpiry,
+                lastError = null,
+            )
+        }
+
+        val loginDeferred = scope.async {
+            runCommand(
                 workspace = chatDir,
                 guestWorkspace = "/workspace/claw-chat",
-                command = listOf("/usr/bin/env", "bash", "-lc", "command -v codex >/dev/null 2>&1 && codex login status || { echo 'Codex is not installed'; exit 127; }")
-            ) { live -> _state.update { it.copy(authStatus = live.takeLast(1200)) } }
-            _state.update {
+                command = listOf(codexBinary(), "login", "--device-auth"),
+                processSlot = ProcessSlot.AUTH,
+            ) { live ->
+                val authorization = CodexRuntimeLogic.parseDeviceAuthorization(live)
+                if (authorization != null) {
+                    updateRuntimeState {
+                        it.copy(
+                            authRunning = true,
+                            authState = CodexAuthState.DEVICE_PENDING,
+                            deviceAuthUrl = authorization.url,
+                            deviceAuthCode = authorization.code,
+                            deviceAuthExpiresAtMillis = defaultExpiry,
+                            lastError = null,
+                        )
+                    }
+                }
+            }
+        }
+
+        var connected = false
+        while (!loginDeferred.isCompleted && !authCancellationRequested) {
+            if (System.currentTimeMillis() >= defaultExpiry) break
+            delay(LOGIN_POLL_INTERVAL_MS)
+            val status = queryLoginStatus()
+            if (status.connected) {
+                connected = true
+                ActiveCodexProcess.auth?.destroy()
+                break
+            }
+        }
+
+        if (!loginDeferred.isCompleted) ActiveCodexProcess.auth?.destroy()
+        val login = runCatching { loginDeferred.await() }
+            .getOrElse { CommandResult(1, "", CodexRuntimeLogic.sanitize(it.message.orEmpty()).ifBlank { "Login process stopped" }) }
+        val finalStatus = queryLoginStatus()
+        connected = connected || finalStatus.connected
+        val finalAuthState = CodexRuntimeLogic.nextAuthState(
+            current = _state.value.authState,
+            connected = connected,
+            nowMillis = System.currentTimeMillis(),
+            expiresAtMillis = defaultExpiry,
+            cancelled = authCancellationRequested,
+            processFinished = true,
+            processExitCode = login.exitCode,
+            output = login.output,
+        )
+        updateRuntimeState {
+            it.copy(
+                authRunning = false,
+                authState = finalAuthState,
+                deviceAuthUrl = if (finalAuthState == CodexAuthState.DEVICE_PENDING) it.deviceAuthUrl else null,
+                deviceAuthCode = if (finalAuthState == CodexAuthState.DEVICE_PENDING) it.deviceAuthCode else null,
+                deviceAuthExpiresAtMillis = if (finalAuthState == CodexAuthState.DEVICE_PENDING) defaultExpiry else null,
+                lastError = when (finalAuthState) {
+                    CodexAuthState.ERROR -> login.error ?: "ChatGPT login failed"
+                    else -> null
+                },
+            )
+        }
+        authCancellationRequested = false
+    }
+
+    private suspend fun ensureCodexInstalled(): Boolean {
+        val existing = probeCodex()
+        if (existing.installed) {
+            applyProbe(existing)
+            return true
+        }
+
+        updateRuntimeState {
+            it.copy(installState = CodexInstallState.INSTALLING, authState = CodexAuthState.UNKNOWN, lastError = null)
+        }
+        val primary = runCommand(
+            workspace = chatDir,
+            guestWorkspace = "/workspace/claw-chat",
+            command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.PRIMARY_INSTALL),
+        ) { }
+        val afterPrimary = probeCodex()
+        if (afterPrimary.installed) {
+            applyProbe(afterPrimary)
+            return true
+        }
+
+        val fallback = runCommand(
+            workspace = chatDir,
+            guestWorkspace = "/workspace/claw-chat",
+            command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.FALLBACK_INSTALL),
+        ) { }
+        val finalProbe = CodexRuntimeLogic.finalInstallProbe(
+            primaryInstallExitCode = primary.exitCode,
+            afterPrimaryProbe = afterPrimary,
+            fallbackInstallExitCode = fallback.exitCode,
+            finalProbe = probeCodex(),
+        )
+        if (finalProbe.installed) {
+            applyProbe(finalProbe)
+            return true
+        }
+
+        val detail = listOf(fallback.error, fallback.output, primary.error, primary.output)
+            .firstOrNull { !it.isNullOrBlank() }
+            ?.let(CodexRuntimeLogic::sanitize)
+            ?.takeLast(1_500)
+            ?: "Codex could not be installed"
+        updateRuntimeState {
+            it.copy(
+                installState = CodexInstallState.ERROR,
+                authState = CodexAuthState.UNKNOWN,
+                codexPath = null,
+                codexVersion = null,
+                lastError = detail,
+            )
+        }
+        return false
+    }
+
+    private suspend fun refreshRuntimeState(showChecking: Boolean) {
+        statusMutex.withLock {
+            if (_state.value.statusCheckRunning) return
+            updateRuntimeState {
                 it.copy(
-                    authRunning = false,
-                    authStatus = result.output.ifBlank { if (result.exitCode == 0) "Connected" else "Not connected" }.takeLast(2000),
-                    lastError = result.error,
+                    statusCheckRunning = true,
+                    installState = if (showChecking && it.installState != CodexInstallState.INSTALLED) CodexInstallState.CHECKING else it.installState,
+                    authState = if (showChecking && !it.authRunning) CodexAuthState.CHECKING else it.authState,
+                    lastError = if (showChecking) null else it.lastError,
+                )
+            }
+            val probe = probeCodex()
+            if (!probe.installed) {
+                updateRuntimeState {
+                    it.copy(
+                        statusCheckRunning = false,
+                        installState = CodexInstallState.NOT_INSTALLED,
+                        authState = CodexAuthState.UNKNOWN,
+                        codexPath = null,
+                        codexVersion = null,
+                        lastError = null,
+                    )
+                }
+                return
+            }
+            val login = queryLoginStatus()
+            if (login.connected) ActiveCodexProcess.auth?.destroy()
+            updateRuntimeState {
+                val auth = when {
+                    login.connected -> CodexAuthState.CONNECTED
+                    it.authRunning && it.authState == CodexAuthState.DEVICE_PENDING -> CodexAuthState.DEVICE_PENDING
+                    else -> CodexAuthState.DISCONNECTED
+                }
+                it.copy(
+                    statusCheckRunning = false,
+                    authRunning = if (login.connected) false else it.authRunning,
+                    installState = CodexInstallState.INSTALLED,
+                    authState = auth,
+                    codexPath = probe.path,
+                    codexVersion = probe.version,
+                    lastError = if (login.connected || it.authRunning) null else login.error,
                 )
             }
         }
     }
 
-    fun connectChatGpt() {
-        if (_state.value.authRunning) return
-        _state.update { it.copy(authRunning = true, authStatus = "Preparing Codex…", lastError = null) }
-        scope.launch {
-            val install = runCommand(
-                workspace = chatDir,
-                guestWorkspace = "/workspace/claw-chat",
-                command = listOf(
-                    "/usr/bin/env", "bash", "-lc",
-                    "command -v codex >/dev/null 2>&1 || npm install -g @openai/codex"
-                ),
-            ) { live -> _state.update { it.copy(authStatus = live.takeLast(1200)) } }
-            if (install.exitCode != 0) {
-                _state.update { it.copy(authRunning = false, authStatus = "Codex install failed", lastError = install.error ?: install.output) }
-                return@launch
-            }
-            val login = runCommand(
-                workspace = chatDir,
-                guestWorkspace = "/workspace/claw-chat",
-                command = listOf("codex", "login", "--device-auth"),
-            ) { live -> _state.update { it.copy(authStatus = live.takeLast(2400)) } }
-            _state.update {
-                it.copy(
-                    authRunning = false,
-                    authStatus = login.output.ifBlank { if (login.exitCode == 0) "ChatGPT connected" else "Login stopped" }.takeLast(3000),
-                    lastError = login.error,
-                )
-            }
+    private suspend fun probeCodex(): CodexProbe {
+        val result = runCommand(
+            workspace = chatDir,
+            guestWorkspace = "/workspace/claw-chat",
+            command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.PROBE),
+        ) { }
+        return CodexRuntimeLogic.parseProbe(result.exitCode, result.output)
+    }
+
+    private suspend fun queryLoginStatus(): LoginStatusResult {
+        val result = runCommand(
+            workspace = chatDir,
+            guestWorkspace = "/workspace/claw-chat",
+            command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.LOGIN_STATUS),
+        ) { }
+        return LoginStatusResult(
+            connected = CodexRuntimeLogic.parseLoginConnected(result.exitCode, result.output),
+            error = result.error?.takeIf { result.exitCode != 0 && !it.contains("not logged in", ignoreCase = true) },
+        )
+    }
+
+    private fun applyProbe(probe: CodexProbe) {
+        updateRuntimeState {
+            it.copy(
+                installState = CodexInstallState.INSTALLED,
+                codexPath = probe.path,
+                codexVersion = probe.version,
+                lastError = null,
+            )
         }
     }
+
+    private fun updateRuntimeState(transform: (ClawCodexState) -> ClawCodexState) {
+        _state.update { current ->
+            val next = transform(current)
+            next.copy(authStatus = CodexRuntimeLogic.statusText(next.installState, next.authState, next.codexVersion))
+        }
+    }
+
+    private fun codexBinary(): String = _state.value.codexPath
+        ?.takeIf { it.startsWith('/') && !it.contains(Regex("\\s")) }
+        ?: CODEX_BINARY
 
     fun clearChat() {
         _state.update { it.copy(chat = emptyList(), chatLiveOutput = "") }
@@ -139,6 +386,11 @@ class ClawCodexController(context: Context) {
     fun sendChat(message: String) {
         val clean = message.trim()
         if (clean.isBlank() || _state.value.chatRunning) return
+        if (_state.value.authState != CodexAuthState.CONNECTED) {
+            updateRuntimeState { it.copy(lastError = "Connect ChatGPT / Codex before starting a chat.") }
+            checkLogin()
+            return
+        }
         val userEntry = ClawChatEntry(fromUser = true, text = clean)
         val updatedHistory = (_state.value.chat + userEntry).takeLast(MAX_CHAT_ENTRIES)
         _state.update { it.copy(chat = updatedHistory, chatRunning = true, chatLiveOutput = "Starting Codex…", lastError = null) }
@@ -151,7 +403,7 @@ class ClawCodexController(context: Context) {
                 workspace = chatDir,
                 guestWorkspace = "/workspace/claw-chat",
                 command = listOf(
-                    "codex",
+                    codexBinary(),
                     "--ask-for-approval", "never",
                     "exec",
                     "--skip-git-repo-check",
@@ -160,6 +412,7 @@ class ClawCodexController(context: Context) {
                     "--output-last-message", "/workspace/claw-chat/.claw-last-message.md",
                     contextPrompt,
                 ),
+                processSlot = ProcessSlot.AGENT,
             ) { live -> _state.update { it.copy(chatLiveOutput = summarizeCodexStream(live)) } }
 
             val answer = lastMessage.takeIf(File::isFile)?.readText()?.trim()
@@ -183,6 +436,11 @@ class ClawCodexController(context: Context) {
     fun runWorkspaceTask(task: String) {
         val clean = task.trim()
         if (clean.isBlank() || _state.value.workspaceRunning) return
+        if (_state.value.authState != CodexAuthState.CONNECTED) {
+            updateRuntimeState { it.copy(lastError = "Connect ChatGPT / Codex before starting an agent task.") }
+            checkLogin()
+            return
+        }
         _state.update {
             it.copy(
                 workspaceRunning = true,
@@ -197,7 +455,7 @@ class ClawCodexController(context: Context) {
                 workspace = workspaceDir,
                 guestWorkspace = "/workspace/codex-agent",
                 command = listOf(
-                    "codex",
+                    codexBinary(),
                     "-c", "sandbox_workspace_write.network_access=true",
                     "--ask-for-approval", "never",
                     "exec",
@@ -207,6 +465,7 @@ class ClawCodexController(context: Context) {
                     "--output-last-message", "/workspace/codex-agent/.claw-last-message.md",
                     buildWorkspacePrompt(clean),
                 ),
+                processSlot = ProcessSlot.AGENT,
             ) { live -> _state.update { it.copy(workspaceLiveOutput = summarizeCodexStream(live)) } }
             val answer = lastMessage.takeIf(File::isFile)?.readText()?.trim()
                 .orEmpty()
@@ -224,7 +483,7 @@ class ClawCodexController(context: Context) {
     }
 
     fun stopActiveRun() {
-        ActiveCodexProcess.process?.let { process ->
+        ActiveCodexProcess.agent?.let { process ->
             runCatching { process.destroy() }
             scope.launch {
                 delay(500)
@@ -297,6 +556,7 @@ class ClawCodexController(context: Context) {
         workspace: File,
         guestWorkspace: String,
         command: List<String>,
+        processSlot: ProcessSlot = ProcessSlot.NONE,
         onOutput: (String) -> Unit,
     ): CommandResult = withContext(Dispatchers.IO) {
         if (!installer.isInstalled()) return@withContext CommandResult(1, "", "Local Linux runtime is not installed yet.")
@@ -312,35 +572,57 @@ class ClawCodexController(context: Context) {
                 guestWorkspacePath = guestWorkspace,
             )
         }.getOrElse { return@withContext CommandResult(1, "", it.message ?: "Could not start Codex") }
-        ActiveCodexProcess.process = process
+        when (processSlot) {
+            ProcessSlot.AUTH -> ActiveCodexProcess.auth = process
+            ProcessSlot.AGENT -> ActiveCodexProcess.agent = process
+            ProcessSlot.NONE -> Unit
+        }
         val native = process as? NativeSpawnProcess
-            ?: return@withContext CommandResult(1, "", "Unsupported native process")
+            ?: run {
+                process.destroy()
+                clearActiveProcess(processSlot, process)
+                return@withContext CommandResult(1, "", "Unsupported native process")
+            }
         var offset = 0L
         val captured = StringBuilder()
-        while (process.isAlive || native.outputFile.length() > offset) {
-            val available = native.outputFile.length() - offset
-            if (available <= 0L) {
-                delay(60)
-                continue
+        try {
+            while (process.isAlive || native.outputFile.length() > offset) {
+                val available = native.outputFile.length() - offset
+                if (available <= 0L) {
+                    delay(60)
+                    continue
+                }
+                val bytes = ByteArray(minOf(available, 32L * 1024).toInt())
+                val count = RandomAccessFile(native.outputFile, "r").use { input ->
+                    input.seek(offset)
+                    input.read(bytes)
+                }
+                if (count > 0) {
+                    offset += count
+                    captured.append(bytes.decodeToString(0, count))
+                    onOutput(CodexRuntimeLogic.sanitize(captured.toString()).takeLast(MAX_LIVE_OUTPUT))
+                }
             }
-            val bytes = ByteArray(minOf(available, 32L * 1024).toInt())
-            val count = RandomAccessFile(native.outputFile, "r").use { input ->
-                input.seek(offset)
-                input.read(bytes)
-            }
-            if (count > 0) {
-                offset += count
-                captured.append(bytes.decodeToString(0, count))
-                onOutput(sanitizeTerminalOutput(captured.toString()).takeLast(MAX_LIVE_OUTPUT))
-            }
+            val exit = process.waitFor()
+            val output = CodexRuntimeLogic.sanitize(captured.toString()).trim()
+            CommandResult(exit, output, if (exit == 0) null else output.takeLast(2000).ifBlank { "Codex exited with code $exit" })
+        } finally {
+            clearActiveProcess(processSlot, process)
+            runCatching { process.outputStream.close() }
+            native.outputFile.delete()
         }
-        val exit = process.waitFor()
-        ActiveCodexProcess.process = null
-        val output = sanitizeTerminalOutput(captured.toString()).trim()
-        CommandResult(exit, output, if (exit == 0) null else output.takeLast(2000).ifBlank { "Codex exited with code $exit" })
+    }
+
+    private fun clearActiveProcess(slot: ProcessSlot, process: Process) {
+        when (slot) {
+            ProcessSlot.AUTH -> if (ActiveCodexProcess.auth === process) ActiveCodexProcess.auth = null
+            ProcessSlot.AGENT -> if (ActiveCodexProcess.agent === process) ActiveCodexProcess.agent = null
+            ProcessSlot.NONE -> Unit
+        }
     }
 
     private fun runtimeEnvironment(): Map<String, String> = buildMap {
+        put("PATH", CodexRuntimeCommands.GUEST_PATH)
         put("CLAW_APPROVAL_DIR", "/pocket-bridge")
         put("HTTP_PROXY", "http://127.0.0.1:8788")
         put("HTTPS_PROXY", "http://127.0.0.1:8788")
@@ -486,12 +768,19 @@ class ClawCodexController(context: Context) {
     }.lastOrNull().orEmpty()
 
     private data class CommandResult(val exitCode: Int, val output: String, val error: String?)
+    private data class LoginStatusResult(val connected: Boolean, val error: String?)
+    private enum class ProcessSlot { NONE, AUTH, AGENT }
 
     private object ActiveCodexProcess {
-        @Volatile var process: Process? = null
+        @Volatile var auth: Process? = null
+        @Volatile var agent: Process? = null
     }
 
     companion object {
+        private const val CODEX_BINARY = "/usr/local/bin/codex"
+        private const val LOGIN_POLL_INTERVAL_MS = 2_000L
+        private const val DEVICE_AUTH_TIMEOUT_MS = 15L * 60L * 1_000L
+        private const val STATE_REFRESH_INTERVAL_MS = 15_000L
         private const val MAX_CHAT_ENTRIES = 40
         private const val MAX_WORKSPACE_LOG = 60
         private const val MAX_LIVE_OUTPUT = 12_000

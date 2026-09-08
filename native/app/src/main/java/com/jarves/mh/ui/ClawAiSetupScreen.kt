@@ -1,5 +1,7 @@
 package com.jarves.mh.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -21,6 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,15 +46,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarves.mh.R
 import com.jarves.mh.runtime.ClawCodexController
+import com.jarves.mh.runtime.CodexAuthState
 
 private val SetupRed = Color(0xFFEF3D45)
 private val SetupGreen = Color(0xFF7CFF6B)
@@ -59,6 +66,7 @@ private val SetupGreen = Color(0xFF7CFF6B)
 fun ClawAiSetupScreen(viewModel: MainViewModel) {
     val appState by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     var showApiProviders by rememberSaveable { mutableStateOf(false) }
 
     if (showApiProviders) {
@@ -75,12 +83,7 @@ fun ClawAiSetupScreen(viewModel: MainViewModel) {
         controller.checkLogin()
     }
 
-    val loggedIn = remember(codexState.authStatus, codexState.lastError) {
-        codexState.lastError == null && (
-            codexState.authStatus.contains("logged in", ignoreCase = true) ||
-                codexState.authStatus.contains("connected", ignoreCase = true)
-            )
-    }
+    val loggedIn = codexState.authState == CodexAuthState.CONNECTED
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         Column(
@@ -176,11 +179,69 @@ fun ClawAiSetupScreen(viewModel: MainViewModel) {
                         if (codexState.authRunning) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                             Spacer(Modifier.width(9.dp))
-                            Text("Waiting for ChatGPT…")
+                            Text("Waiting for authorization…")
                         } else {
                             Icon(Icons.Default.Key, null)
                             Spacer(Modifier.width(8.dp))
                             Text(if (loggedIn) "Reconnect ChatGPT" else "Sign in with ChatGPT", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (codexState.authState == CodexAuthState.DEVICE_PENDING) {
+                        codexState.deviceAuthUrl?.let { url ->
+                            Spacer(Modifier.height(12.dp))
+                            Text(url, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                        }
+                        codexState.deviceAuthCode?.let { code ->
+                            Spacer(Modifier.height(8.dp))
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                            ) {
+                                Text(
+                                    code,
+                                    modifier = Modifier.padding(12.dp),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        codexState.deviceAuthUrl?.let { url ->
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Open sign-in") }
+                                OutlinedButton(
+                                    onClick = { clipboard.setText(AnnotatedString(code)) },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Copy code") }
+                            }
+                        }
+                    }
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (codexState.authRunning) {
+                            OutlinedButton(onClick = controller::cancelLogin, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Stop, null)
+                                Spacer(Modifier.width(5.dp))
+                                Text("Cancel")
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = controller::checkLogin,
+                            enabled = !codexState.statusCheckRunning,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Default.Refresh, null)
+                            Spacer(Modifier.width(5.dp))
+                            Text(if (codexState.statusCheckRunning) "Checking…" else "Check login")
                         }
                     }
 
