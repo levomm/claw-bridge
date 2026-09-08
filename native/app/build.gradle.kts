@@ -83,8 +83,8 @@ android {
         applicationId = "ee.clawbridge.app.native"
         minSdk = 28
         targetSdk = if (playBuild) 36 else 28
-        versionCode = 12
-        versionName = "0.6.4-native-alpha"
+        versionCode = 13
+        versionName = "0.6.5-native-alpha"
         providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
 

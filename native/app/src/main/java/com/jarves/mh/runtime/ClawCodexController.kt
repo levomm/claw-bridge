@@ -6,6 +6,8 @@ import com.jarves.mh.data.AppPreferences
 import com.jarves.mh.data.ConnectionVault
 import java.io.File
 import java.io.RandomAccessFile
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -367,6 +369,7 @@ class ClawCodexController(context: Context) {
             workspace = chatDir,
             guestWorkspace = "/workspace/claw-chat",
             command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.PROBE),
+            useAgentProxy = false,
         ) { }
         CodexRuntimeLogic.parseProbe(result.exitCode, result.output).takeIf(CodexProbe::installed)?.let { return it }
 
@@ -377,6 +380,7 @@ class ClawCodexController(context: Context) {
                 workspace = chatDir,
                 guestWorkspace = "/workspace/claw-chat",
                 command = listOf(existingCandidate, "--version"),
+                useAgentProxy = false,
             ) { }
             CodexRuntimeLogic.parseVersionProbe(direct.exitCode, existingCandidate, direct.output)
                 .takeIf(CodexProbe::installed)
@@ -395,6 +399,7 @@ class ClawCodexController(context: Context) {
             workspace = chatDir,
             guestWorkspace = "/workspace/claw-chat",
             command = listOf("/usr/bin/env", "bash", "-lc", CodexRuntimeCommands.LOGIN_STATUS),
+            useAgentProxy = false,
         ) { }
         return LoginStatusResult(
             connected = CodexRuntimeLogic.parseLoginConnected(result.exitCode, result.output),
@@ -459,6 +464,7 @@ class ClawCodexController(context: Context) {
                     contextPrompt,
                 ),
                 processSlot = ProcessSlot.AGENT,
+                maxRuntimeMillis = CHAT_RUN_TIMEOUT_MS,
             ) { live -> _state.update { it.copy(chatLiveOutput = summarizeCodexStream(live)) } }
 
             val answer = lastMessage.takeIf(File::isFile)?.readText()?.trim()
@@ -512,6 +518,7 @@ class ClawCodexController(context: Context) {
                     buildWorkspacePrompt(clean),
                 ),
                 processSlot = ProcessSlot.AGENT,
+                maxRuntimeMillis = WORKSPACE_RUN_TIMEOUT_MS,
             ) { live -> _state.update { it.copy(workspaceLiveOutput = summarizeCodexStream(live)) } }
             val answer = lastMessage.takeIf(File::isFile)?.readText()?.trim()
                 .orEmpty()
@@ -557,6 +564,7 @@ class ClawCodexController(context: Context) {
                     "/usr/bin/env", "bash", "-lc",
                     "command -v ssh-keygen >/dev/null 2>&1 || { apt-get update && apt-get install -y --no-install-recommends openssh-client; }; mkdir -p /root/.ssh; chmod 700 /root/.ssh; test -f /root/.ssh/id_ed25519 || ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519; cat /root/.ssh/id_ed25519.pub"
                 ),
+                useAgentProxy = false,
             ) { live -> _state.update { it.copy(workspaceLiveOutput = live.takeLast(2400)) } }
             _state.update {
                 it.copy(
@@ -586,6 +594,7 @@ class ClawCodexController(context: Context) {
                 workspace = workspaceDir,
                 guestWorkspace = "/workspace/codex-agent",
                 command = listOf("/usr/bin/env", "bash", "-lc", command),
+                useAgentProxy = false,
             ) { live -> _state.update { it.copy(workspaceLiveOutput = live.takeLast(2000)) } }
             _state.update {
                 it.copy(
@@ -604,10 +613,15 @@ class ClawCodexController(context: Context) {
         command: List<String>,
         processSlot: ProcessSlot = ProcessSlot.NONE,
         useAgentProxy: Boolean = true,
+        maxRuntimeMillis: Long? = null,
         onOutput: (String) -> Unit,
     ): CommandResult = withContext(Dispatchers.IO) {
         if (!installer.isInstalled()) return@withContext CommandResult(1, "", "Local Linux runtime is not installed yet.")
-        GatewayService.start(appContext)
+        if (useAgentProxy) {
+            if (!ensureAgentProxy()) {
+                return@withContext CommandResult(1, "", "The local network bridge did not start after an automatic restart.")
+            }
+        }
         val runtime = installer.installedRuntime()
         val process = runCatching {
             installer.process(
@@ -630,10 +644,22 @@ class ClawCodexController(context: Context) {
                 clearActiveProcess(processSlot, process)
                 return@withContext CommandResult(1, "", "Unsupported native process")
             }
+        // NativeSpawn gives the child a pipe for stdin. `codex exec` treats any piped stdin
+        // as additional context and waits for EOF before starting. Every controller command
+        // is non-interactive, so close the pipe immediately instead of deadlocking the run.
+        runCatching { process.outputStream.close() }
         var offset = 0L
         val captured = StringBuilder()
+        val startedAt = System.currentTimeMillis()
+        var timedOut = false
         try {
             while (process.isAlive || native.outputFile.length() > offset) {
+                if (maxRuntimeMillis != null && System.currentTimeMillis() - startedAt >= maxRuntimeMillis && process.isAlive) {
+                    timedOut = true
+                    process.destroy()
+                    delay(750)
+                    if (process.isAlive) process.destroyForcibly()
+                }
                 val available = native.outputFile.length() - offset
                 if (available <= 0L) {
                     delay(60)
@@ -655,7 +681,12 @@ class ClawCodexController(context: Context) {
             // `codex --version` can exit between the isAlive and file-length checks.
             val finalCapture = runCatching { native.outputFile.readText() }.getOrDefault(captured.toString())
             val output = CodexRuntimeLogic.sanitize(finalCapture).trim()
-            CommandResult(exit, output, if (exit == 0) null else output.takeLast(2000).ifBlank { "Codex exited with code $exit" })
+            val error = when {
+                timedOut -> "Codex did not respond before the run timed out."
+                exit == 0 -> null
+                else -> output.takeLast(2000).ifBlank { "Codex exited with code $exit" }
+            }
+            CommandResult(if (timedOut) 124 else exit, output, error)
         } finally {
             clearActiveProcess(processSlot, process)
             runCatching { process.outputStream.close() }
@@ -678,6 +709,28 @@ class ClawCodexController(context: Context) {
             delay(750)
             if (process.isAlive) runCatching { process.destroyForcibly() }
         }
+    }
+
+    private suspend fun ensureAgentProxy(): Boolean {
+        GatewayService.start(appContext)
+        if (waitForAgentProxy(AGENT_PROXY_FIRST_WAIT_MS)) return true
+        GatewayService.restart(appContext)
+        return waitForAgentProxy(AGENT_PROXY_RESTART_WAIT_MS)
+    }
+
+    private suspend fun waitForAgentProxy(timeoutMillis: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMillis
+        while (System.currentTimeMillis() < deadline) {
+            val ready = runCatching {
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress("127.0.0.1", AGENT_PROXY_PORT), 300)
+                }
+                true
+            }.getOrDefault(false)
+            if (ready) return true
+            delay(150)
+        }
+        return false
     }
 
     private fun runtimeEnvironment(useAgentProxy: Boolean): Map<String, String> = buildMap {
@@ -843,6 +896,11 @@ class ClawCodexController(context: Context) {
         private const val LOGIN_POLL_INTERVAL_MS = 2_000L
         private const val DEVICE_AUTH_PROMPT_TIMEOUT_MS = 45_000L
         private const val DEVICE_AUTH_TIMEOUT_MS = 15L * 60L * 1_000L
+        private const val AGENT_PROXY_PORT = 8788
+        private const val AGENT_PROXY_FIRST_WAIT_MS = 3_000L
+        private const val AGENT_PROXY_RESTART_WAIT_MS = 7_000L
+        private const val CHAT_RUN_TIMEOUT_MS = 5L * 60L * 1_000L
+        private const val WORKSPACE_RUN_TIMEOUT_MS = 45L * 60L * 1_000L
         private const val STATE_REFRESH_INTERVAL_MS = 15_000L
         private const val MAX_CHAT_ENTRIES = 40
         private const val MAX_WORKSPACE_LOG = 60

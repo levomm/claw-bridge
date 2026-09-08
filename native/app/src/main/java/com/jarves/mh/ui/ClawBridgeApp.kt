@@ -435,15 +435,19 @@ private fun ClawChatScreen(controller: ClawCodexController, state: ClawCodexStat
         Spacer(Modifier.height(7.dp))
         Button(
             onClick = {
-                controller.sendChat(prompt)
-                prompt = ""
+                if (state.chatRunning) {
+                    controller.stopActiveRun()
+                } else {
+                    controller.sendChat(prompt)
+                    prompt = ""
+                }
             },
-            enabled = prompt.isNotBlank() && !state.chatRunning && state.authState == CodexAuthState.CONNECTED,
+            enabled = state.chatRunning || (prompt.isNotBlank() && state.authState == CodexAuthState.CONNECTED),
             modifier = Modifier.fillMaxWidth().height(48.dp),
         ) {
-            Icon(Icons.Default.Send, null)
+            Icon(if (state.chatRunning) Icons.Default.Stop else Icons.Default.Send, null)
             Spacer(Modifier.width(8.dp))
-            Text(if (state.chatRunning) "Working…" else "Send")
+            Text(if (state.chatRunning) "Stop" else "Send")
         }
         Spacer(Modifier.height(10.dp))
     }
