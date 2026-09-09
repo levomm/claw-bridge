@@ -27,7 +27,7 @@ val runtimeBundleDir = rootProject.layout.projectDirectory.dir("dist/runtime-bun
 val generatedRuntimeAssets = layout.buildDirectory.dir("generated/runtime-assets")
 val clawGatewaySourceDir = rootProject.layout.projectDirectory.dir("../gateway")
 val generatedClawGatewayAssets = layout.buildDirectory.dir("generated/claw-gateway-assets")
-val clawGatewayVersion = "0.5.0"
+val clawGatewayVersion = "0.5.1"
 
 val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAssets") {
     from(
@@ -41,6 +41,7 @@ val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAss
 val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") {
     from(clawGatewaySourceDir) {
         include("server.mjs")
+        include("proxy-policy.mjs")
         include("host-mcp.mjs")
         include("claw-tool.mjs")
         include("telegram-bridge.mjs")
@@ -92,8 +93,8 @@ android {
         applicationId = "ee.clawbridge.app.native"
         minSdk = 28
         targetSdk = if (playBuild) 36 else 28
-        versionCode = 15
-        versionName = "0.6.7-native-alpha"
+        versionCode = 16
+        versionName = "0.6.8-native-alpha"
         providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
 

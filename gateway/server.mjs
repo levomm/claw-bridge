@@ -1,4 +1,4 @@
-import { createServer } from "node:http"
+import { createServer, request as requestHttp } from "node:http"
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto"
 import { access, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { constants } from "node:fs"
@@ -8,6 +8,7 @@ import { spawn } from "node:child_process"
 import { lookup } from "node:dns/promises"
 import { connect as connectTcp } from "node:net"
 import { WebSocketServer, WebSocket } from "ws"
+import { parseAllowedHttpProxyTarget, proxyHostAllowed } from "./proxy-policy.mjs"
 
 const VERSION = "0.4.0"
 const PORT = Number(process.env.CLAW_PORT || 8787)
@@ -32,7 +33,6 @@ const allowedRules = new Set()
 const sessions = new Map()
 const runs = new Map()
 const clients = new Set()
-const proxyDomainSuffixes = ["openai.com", "chatgpt.com", "oaiusercontent.com", "oaistatic.com", "anthropic.com", "claude.ai"]
 const agentPath = [...new Set([
   ...(process.env.PATH || "").split(":").filter(Boolean),
   "/usr/local/bin",
@@ -169,11 +169,6 @@ function buildCommand(input, target) {
     return { command: "sh", args: ["-c", `if command -v codex >/dev/null; then codex exec "$1"; elif command -v claude >/dev/null; then claude -p "$1"; else printf '%s\\n' 'No Codex or Claude CLI installed'; exit 127; fi`, "claw-bridge", input], display: input }
   }
   return { command: "sh", args: ["-c", input], display: input }
-}
-
-function proxyHostAllowed(host) {
-  const normalized = String(host).toLowerCase().replace(/\.$/, "")
-  return proxyDomainSuffixes.some((suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`))
 }
 
 function agentEnvironment() {
@@ -469,14 +464,45 @@ function connectFirstIpv4(addresses, port) {
   })
 }
 
-const ipv4Proxy = createServer((request, response) => {
+const ipv4Proxy = createServer(async (request, response) => {
   if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" })
     response.end(JSON.stringify({ ok: true, family: 4 }))
     return
   }
-  response.writeHead(405, { "content-type": "text/plain" })
-  response.end("HTTPS CONNECT only\n")
+  const parsed = parseAllowedHttpProxyTarget(request.method, request.url)
+  if (!parsed.ok) {
+    response.writeHead(parsed.status, { "content-type": "text/plain" })
+    response.end("Proxy request rejected\n")
+    return
+  }
+  try {
+    const records = await lookup(parsed.target.hostname, { family: 4, all: true })
+    const address = records[0]?.address
+    if (!address) throw new Error("No IPv4 address available")
+    const headers = { ...request.headers, host: parsed.target.host }
+    delete headers["proxy-connection"]
+    const upstream = requestHttp({
+      host: address,
+      port: 80,
+      method: request.method,
+      path: `${parsed.target.pathname}${parsed.target.search}`,
+      headers,
+      family: 4,
+    }, (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers)
+      upstreamResponse.pipe(response)
+    })
+    upstream.setTimeout(15_000, () => upstream.destroy(new Error("IPv4 upstream request timed out")))
+    upstream.on("error", () => {
+      if (!response.headersSent) response.writeHead(502, { "content-type": "text/plain" })
+      response.end("IPv4 upstream request failed\n")
+    })
+    request.pipe(upstream)
+  } catch {
+    response.writeHead(502, { "content-type": "text/plain" })
+    response.end("IPv4 upstream connection failed\n")
+  }
 })
 
 ipv4Proxy.on("connect", async (request, clientSocket, head) => {
