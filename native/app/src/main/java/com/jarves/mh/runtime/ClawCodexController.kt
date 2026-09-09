@@ -513,7 +513,10 @@ class ClawCodexController(context: Context) {
                     "--ask-for-approval", "never",
                     "exec",
                     "--skip-git-repo-check",
-                    "--sandbox", "workspace-write",
+                    // Codex's OS-level workspace sandbox is not compatible with PRoot on
+                    // Android (tool processes exit with signal/status 182). PRoot itself
+                    // is already the app-private boundary; remote actions remain gated.
+                    "--sandbox", "danger-full-access",
                     "--json",
                     "--output-last-message", "/workspace/codex-agent/.claw-last-message.md",
                     buildWorkspacePrompt(clean),

@@ -86,7 +86,9 @@ async function runCodex(prompt, writable) {
     "--ask-for-approval", "never",
     "exec",
     "--skip-git-repo-check",
-    "--sandbox", writable ? "workspace-write" : "read-only",
+    // PRoot is already the Android app-private boundary. Codex's workspace-write
+    // OS sandbox cannot launch tools reliably inside PRoot (exit status 182).
+    "--sandbox", writable ? "danger-full-access" : "read-only",
     "--output-last-message", last,
   ]
   if (writable) args.unshift("-c", "sandbox_workspace_write.network_access=true")
