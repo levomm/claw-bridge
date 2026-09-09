@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { RefreshCwIcon, SendIcon, TerminalSquareIcon, ShieldCheckIcon, SettingsIcon, SmartphoneIcon, ServerIcon, BoxIcon } from "lucide-react"
+import { RefreshCwIcon, SendIcon, TerminalSquareIcon, ShieldCheckIcon, SettingsIcon, SmartphoneIcon, ServerIcon, BoxIcon, BotIcon } from "lucide-react"
 import { useBridge } from "@/components/providers/bridge-provider"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -91,22 +91,37 @@ export function Dashboard() {
         </Link>
       </div>
 
+      <Link href="/seekclaw" className="rounded-xl focus-visible:ring-2 focus-visible:ring-ring">
+        <Card className="border-primary/20 transition-colors hover:border-primary/40">
+          <CardContent className="flex items-center gap-3 py-4">
+            <div className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
+              <BotIcon className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">SeekClaw Agent</p>
+              <p className="text-sm text-muted-foreground">Find work · score fit · build locally · approve external actions</p>
+            </div>
+            <span className="text-xl text-muted-foreground">›</span>
+          </CardContent>
+        </Card>
+      </Link>
+
       <div className="grid grid-cols-2 gap-3">
         <Button render={<Link href="/command" />} size="lg" className="h-14 justify-start">
-            <SendIcon data-icon="inline-start" />
-            New command
+          <SendIcon data-icon="inline-start" />
+          New command
         </Button>
         <Button render={<Link href="/terminal" />} size="lg" variant="outline" className="h-14 justify-start">
-            <TerminalSquareIcon data-icon="inline-start" />
-            Terminal
+          <TerminalSquareIcon data-icon="inline-start" />
+          Terminal
         </Button>
         <Button render={<Link href="/approvals" />} size="lg" variant="outline" className="h-14 justify-start">
-            <ShieldCheckIcon data-icon="inline-start" />
-            Approvals
+          <ShieldCheckIcon data-icon="inline-start" />
+          Approvals
         </Button>
         <Button render={<Link href="/settings" />} size="lg" variant="outline" className="h-14 justify-start">
-            <SettingsIcon data-icon="inline-start" />
-            Settings
+          <SettingsIcon data-icon="inline-start" />
+          Settings
         </Button>
       </div>
 
