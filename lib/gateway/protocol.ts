@@ -6,6 +6,11 @@ import type {
 } from "./types"
 
 export type GatewayMethod =
+  | "seekclaw.jobs.list"
+  | "seekclaw.jobs.get"
+  | "seekclaw.jobs.discover"
+  | "seekclaw.jobs.evaluate"
+  | "seekclaw.jobs.act"
   | "status.get"
   | "run.start"
   | "run.stop"

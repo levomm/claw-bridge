@@ -1,3 +1,4 @@
+import type { CapabilityProfile, JobAction, JobRecord } from "../seekclaw/types"
 import { Capacitor } from "@capacitor/core"
 import type { EventMessage, GatewayMethod, RequestMessage, ServerMessage } from "./protocol"
 import {
@@ -165,12 +166,32 @@ export class WebSocketGatewayClient implements GatewayClient {
     }
   }
 
+  listSeekClawJobs() {
+    return this.request<JobRecord[]>("seekclaw.jobs.list")
+  }
+
+  discoverSeekClawJobs() {
+    return this.request<JobRecord[]>("seekclaw.jobs.discover", undefined, 30_000)
+  }
+
+  getSeekClawJob(jobId: string) {
+    return this.request<JobRecord>("seekclaw.jobs.get", { jobId })
+  }
+
+  evaluateSeekClawJob(jobId: string, profile: CapabilityProfile) {
+    return this.request<JobRecord>("seekclaw.jobs.evaluate", { jobId, profile }, 30_000)
+  }
+
+  actOnSeekClawJob(jobId: string, revision: number, action: JobAction) {
+    return this.request<JobRecord>("seekclaw.jobs.act", { jobId, revision, action })
+  }
+
   listApprovals() {
     return this.request<ApprovalRequest[]>("approvals.list")
   }
 
   resolveApproval(approvalId: string, decision: ApprovalDecision) {
-    return this.request<ApprovalRequest>("approvals.resolve", { approvalId, decision })
+    return this.request<ApprovalRequest>("approvals.resolve", { approvalId, decision }, 60_000)
   }
 
   listAuditLog() {
