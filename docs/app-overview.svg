@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">CLAW Bridge Android interface</title>
+  <desc id="desc">Dashboard, terminal and approval flow in the CLAW Bridge Android app.</desc>
+  <defs>
+    <linearGradient id="back" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#121416"/><stop offset="1" stop-color="#080909"/></linearGradient>
+    <filter id="shadow" x="-30%" y="-20%" width="160%" height="150%"><feDropShadow dy="22" stdDeviation="22" flood-opacity=".55"/></filter>
+  </defs>
+  <rect width="1600" height="980" rx="34" fill="url(#back)"/>
+  <circle cx="175" cy="125" r="240" fill="#ef3d45" opacity=".07"/>
+  <circle cx="1450" cy="860" r="290" fill="#7cff6b" opacity=".045"/>
+  <text x="800" y="74" text-anchor="middle" fill="#f5f6f6" font-family="Inter,Arial,sans-serif" font-size="36" font-weight="800">A real control plane in your pocket</text>
+  <text x="800" y="112" text-anchor="middle" fill="#8e959b" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="18">DASHBOARD  /  LIVE TERMINAL  /  HUMAN APPROVALS</text>
+
+  <g transform="translate(85 155)" filter="url(#shadow)">
+    <rect width="430" height="745" rx="44" fill="#050606" stroke="#383c3f" stroke-width="2"/>
+    <rect x="22" y="22" width="386" height="701" rx="28" fill="#0b0c0d"/>
+    <g transform="translate(48 57)">
+      <text fill="#888f95" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" letter-spacing="3">CLAW</text>
+      <text x="65" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="22" font-weight="700">Dashboard</text>
+      <circle cx="300" cy="-5" r="6" fill="#7cff6b"/><text x="314" fill="#aab0b5" font-family="Inter,Arial,sans-serif" font-size="15">Online</text>
+      <rect y="38" width="334" height="295" rx="25" fill="#17191b" stroke="#303438"/>
+      <text x="22" y="74" fill="#7f868c" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="14">ws://127.0.0.1:8787</text>
+      <text x="22" y="111" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="22" font-weight="700">localhost</text>
+      <path d="M22 142h290M22 211h290" stroke="#303438"/>
+      <text x="22" y="177" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="600">Gateway</text>
+      <text x="22" y="195" fill="#848b90" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">v0.3.0 · up 19m</text>
+      <circle cx="290" cy="173" r="6" fill="#7cff6b"/>
+      <text x="22" y="246" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="600">Termux</text>
+      <text x="22" y="266" fill="#848b90" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">Termux:API online</text>
+      <circle cx="290" cy="243" r="6" fill="#7cff6b"/>
+      <text x="22" y="302" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="600">Android device</text>
+      <circle cx="290" cy="299" r="6" fill="#f2b84b"/>
+      <g transform="translate(0 356)">
+        <rect width="158" height="80" rx="20" fill="#17191b" stroke="#303438"/><text x="18" y="31" fill="#8d9499" font-family="Inter,Arial,sans-serif" font-size="14">Active runs</text><text x="18" y="64" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="28">0</text>
+        <rect x="176" width="158" height="80" rx="20" fill="#17191b" stroke="#303438"/><text x="194" y="31" fill="#8d9499" font-family="Inter,Arial,sans-serif" font-size="14">Approvals</text><text x="194" y="64" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="28">0</text>
+      </g>
+      <g transform="translate(0 456)">
+        <rect width="158" height="66" rx="18" fill="#f1f2f2"/><text x="24" y="40" fill="#111315" font-family="Inter,Arial,sans-serif" font-size="16" font-weight="700">New command</text>
+        <rect x="176" width="158" height="66" rx="18" fill="#17191b" stroke="#303438"/><text x="207" y="40" fill="#f4f5f5" font-family="Inter,Arial,sans-serif" font-size="16" font-weight="700">Terminal</text>
+        <rect y="80" width="158" height="66" rx="18" fill="#17191b" stroke="#303438"/><text x="37" y="120" fill="#f4f5f5" font-family="Inter,Arial,sans-serif" font-size="16" font-weight="700">Approvals</text>
+        <rect x="176" y="80" width="158" height="66" rx="18" fill="#17191b" stroke="#303438"/><text x="213" y="120" fill="#f4f5f5" font-family="Inter,Arial,sans-serif" font-size="16" font-weight="700">Settings</text>
+      </g>
+      <text x="167" y="648" text-anchor="middle" fill="#5f666b" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">LOCAL · PRIVATE · ONLINE</text>
+    </g>
+  </g>
+
+  <g transform="translate(585 155)" filter="url(#shadow)">
+    <rect width="430" height="745" rx="44" fill="#050606" stroke="#383c3f" stroke-width="2"/>
+    <rect x="22" y="22" width="386" height="701" rx="28" fill="#0b0c0d"/>
+    <g transform="translate(48 57)">
+      <text fill="#888f95" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" letter-spacing="3">CLAW</text>
+      <text x="65" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="22" font-weight="700">Terminal</text>
+      <circle cx="300" cy="-5" r="6" fill="#7cff6b"/><text x="314" fill="#aab0b5" font-family="Inter,Arial,sans-serif" font-size="15">Online</text>
+      <g transform="translate(0 38)"><rect width="102" height="48" rx="15" fill="#26292c" stroke="#3c4044"/><text x="22" y="30" fill="#fff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15">sh-1</text><text x="77" y="30" fill="#92989d" font-family="Arial" font-size="18">×</text><text x="128" y="31" fill="#fff" font-family="Arial" font-size="29">+</text></g>
+      <rect y="105" width="334" height="400" rx="22" fill="#17191b" stroke="#34383b"/>
+      <g transform="translate(20 136)" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="14">
+        <text fill="#81888e">sh-1 · /data/data/com.termux/files/home</text>
+        <text y="36" fill="#f2f3f3">$ codex exec "inspect this repo"</text>
+        <text y="72" fill="#ef3d45">OpenAI Codex v0.149.1</text>
+        <text y="108" fill="#92999e">workdir: ~/CLAW-Bridge</text>
+        <text y="144" fill="#92999e">sandbox: workspace-write</text>
+        <text y="198" fill="#7cff6b">✓ inspected 47 files</text>
+        <text y="232" fill="#7cff6b">✓ gateway tests 15/15</text>
+        <text y="266" fill="#7cff6b">✓ production build</text>
+        <text y="320" fill="#f2f3f3">CLAW Bridge is ready.</text>
+        <rect x="218" y="307" width="9" height="18" rx="2" fill="#7cff6b"/>
+      </g>
+      <rect y="526" width="334" height="60" rx="18" fill="#17191b" stroke="#34383b"/>
+      <text x="19" y="563" fill="#737a80" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15">$ type a command</text>
+      <g transform="translate(0 605)" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="14">
+        <rect width="70" height="43" rx="13" fill="#17191b" stroke="#34383b"/><text x="18" y="27" fill="#fff">Ctrl</text>
+        <rect x="80" width="70" height="43" rx="13" fill="#17191b" stroke="#34383b"/><text x="98" y="27" fill="#fff">Alt</text>
+        <rect x="160" width="70" height="43" rx="13" fill="#17191b" stroke="#34383b"/><text x="177" y="27" fill="#fff">Tab</text>
+        <rect x="240" width="94" height="43" rx="13" fill="#17191b" stroke="#34383b"/><text x="267" y="27" fill="#fff">Esc</text>
+      </g>
+    </g>
+  </g>
+
+  <g transform="translate(1085 155)" filter="url(#shadow)">
+    <rect width="430" height="745" rx="44" fill="#050606" stroke="#383c3f" stroke-width="2"/>
+    <rect x="22" y="22" width="386" height="701" rx="28" fill="#0b0c0d"/>
+    <g transform="translate(48 57)">
+      <text fill="#888f95" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" letter-spacing="3">CLAW</text>
+      <text x="65" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="22" font-weight="700">Approvals</text>
+      <circle cx="300" cy="-5" r="6" fill="#7cff6b"/><text x="314" fill="#aab0b5" font-family="Inter,Arial,sans-serif" font-size="15">Online</text>
+      <text y="57" fill="#8e959a" font-family="Inter,Arial,sans-serif" font-size="15">Human control before risky actions.</text>
+      <rect y="87" width="334" height="343" rx="24" fill="#17191b" stroke="#34383b"/>
+      <rect x="22" y="111" width="74" height="28" rx="14" fill="#502126"/><text x="40" y="130" fill="#ff747b" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" font-weight="700">HIGH</text>
+      <text x="22" y="175" fill="#f4f5f5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="14">git push origin main</text>
+      <text x="22" y="207" fill="#868d92" font-family="Inter,Arial,sans-serif" font-size="14">Agent: Codex</text>
+      <text x="22" y="232" fill="#868d92" font-family="Inter,Arial,sans-serif" font-size="14">Project: ~/CLAW-Bridge</text>
+      <path d="M22 258h290" stroke="#303438"/>
+      <text x="22" y="288" fill="#aeb4b8" font-family="Inter,Arial,sans-serif" font-size="13">This command changes a remote repository.</text>
+      <rect x="22" y="315" width="88" height="52" rx="15" fill="#241719" stroke="#6d2a30"/><text x="48" y="347" fill="#ff747b" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700">Deny</text>
+      <rect x="120" y="315" width="102" height="52" rx="15" fill="#25282a" stroke="#454a4e"/><text x="136" y="347" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700">Allow once</text>
+      <rect x="232" y="315" width="80" height="52" rx="15" fill="#edf0ef"/><text x="245" y="347" fill="#111315" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700">Always</text>
+      <g transform="translate(0 462)">
+        <text fill="#fff" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="700">Audit trail</text>
+        <rect y="27" width="334" height="78" rx="18" fill="#17191b" stroke="#303438"/>
+        <circle cx="24" cy="54" r="6" fill="#7cff6b"/><text x="42" y="58" fill="#f1f2f2" font-family="Inter,Arial,sans-serif" font-size="14">Allowed once</text>
+        <text x="42" y="82" fill="#777e83" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">git status · 18:42:07</text>
+        <rect y="118" width="334" height="78" rx="18" fill="#17191b" stroke="#303438"/>
+        <circle cx="24" cy="145" r="6" fill="#ef3d45"/><text x="42" y="149" fill="#f1f2f2" font-family="Inter,Arial,sans-serif" font-size="14">Denied</text>
+        <text x="42" y="173" fill="#777e83" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">rm -rf build · 18:39:12</text>
+      </g>
+    </g>
+  </g>
+</svg>
