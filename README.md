@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/levomm/openclaw-2/actions/workflows/android-apk.yml"><img alt="Android APK build" src="https://github.com/levomm/openclaw-2/actions/workflows/android-apk.yml/badge.svg"></a>
+  <a href="https://github.com/levomm/claw-bridge/actions/workflows/android-apk.yml"><img alt="Android APK build" src="https://github.com/levomm/claw-bridge/actions/workflows/android-apk.yml/badge.svg"></a>
   <img alt="Android" src="https://img.shields.io/badge/Android-APK-7CFF6B?style=flat-square&logo=android&logoColor=111">
   <img alt="Termux" src="https://img.shields.io/badge/Termux-Gateway-EF3D45?style=flat-square&logo=gnometerminal&logoColor=white">
   <img alt="Status" src="https://img.shields.io/badge/status-early_beta-F2B84B?style=flat-square">
@@ -66,7 +66,7 @@ gateway    HEALTHY
 agent-ipv4 HEALTHY
 ```
 
-Install the APK from the latest successful [Android APK workflow](https://github.com/levomm/openclaw-2/actions/workflows/android-apk.yml), open CLAW Bridge and pair it with:
+Install the APK from the latest successful [Android APK workflow](https://github.com/levomm/claw-bridge/actions/workflows/android-apk.yml), open CLAW Bridge and pair it with:
 
 ```text
 Gateway: ws://127.0.0.1:8787
