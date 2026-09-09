@@ -146,4 +146,15 @@ class CodexRuntimeStateTest {
         assertNull(probe.path)
         assertNull(probe.version)
     }
+
+    @Test
+    fun extractsGeneratedSshKeyFromPackageOutput() {
+        val output = "Reading package lists... Done\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest root@phone\n"
+
+        assertEquals(
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest root@phone",
+            CodexRuntimeLogic.extractSshPublicKey(output),
+        )
+        assertNull(CodexRuntimeLogic.extractSshPublicKey("ssh-keygen: command not found"))
+    }
 }

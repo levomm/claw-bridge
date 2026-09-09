@@ -93,6 +93,7 @@ import com.jarves.mh.runtime.ClawCodexController
 import com.jarves.mh.runtime.ClawCodexState
 import com.jarves.mh.runtime.CodexAuthState
 import com.jarves.mh.runtime.CodexInstallState
+import com.jarves.mh.runtime.CodexRuntimeLogic
 import com.jarves.mh.runtime.GatewayService
 
 private enum class ClawRoot(val label: String) {
@@ -767,15 +768,28 @@ private fun ClawConnectionsScreen(viewModel: MainViewModel, controller: ClawCode
             Text("The bot token is encrypted with Android Keystore.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        val output = terminalLive.ifBlank { terminalLines.lastOrNull()?.output.orEmpty() }
-        if (output.isNotBlank() || codexState.workspaceLiveOutput.isNotBlank()) {
+        val output = codexState.connectionOutput.ifBlank {
+            terminalLive.ifBlank { terminalLines.lastOrNull()?.output.orEmpty() }
+        }
+        val sshPublicKey = CodexRuntimeLogic.extractSshPublicKey(output)
+        if (output.isNotBlank()) {
             ClawPanel("Connection output") {
                 Text(
-                    (codexState.workspaceLiveOutput.ifBlank { output }).takeLast(3500),
+                    output.takeLast(3500),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
                     lineHeight = 15.sp,
                 )
+                if (sshPublicKey != null) {
+                    OutlinedButton(
+                        onClick = { clipboard.setText(AnnotatedString(sshPublicKey)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Key, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Copy SSH key")
+                    }
+                }
             }
         }
         Spacer(Modifier.height(20.dp))

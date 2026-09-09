@@ -19,7 +19,7 @@ CLAW Bridge turns an Android phone into an AI workspace and control surface. The
 
 The old Termux beta remains available during migration. The native preview installs side-by-side so we can verify the new stack on a real phone before replacing the existing app.
 
-## Native v0.6.8 preview
+## Native v0.6.9 preview
 
 The current `mobile-harness-integration` branch includes:
 

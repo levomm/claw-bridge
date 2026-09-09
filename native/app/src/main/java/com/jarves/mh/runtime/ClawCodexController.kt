@@ -57,6 +57,7 @@ data class ClawCodexState(
     val workspaceRunning: Boolean = false,
     val chatLiveOutput: String = "",
     val workspaceLiveOutput: String = "",
+    val connectionOutput: String = "",
     val chat: List<ClawChatEntry> = emptyList(),
     val workspaceLog: List<String> = emptyList(),
     val approvals: List<ClawApprovalRequest> = emptyList(),
@@ -555,7 +556,7 @@ class ClawCodexController(context: Context) {
 
     fun generateSshKey() {
         if (_state.value.workspaceRunning) return
-        _state.update { it.copy(workspaceRunning = true, workspaceLiveOutput = "Preparing SSH key…") }
+        _state.update { it.copy(workspaceRunning = true, connectionOutput = "Preparing SSH key…", lastError = null) }
         scope.launch {
             val result = runCommand(
                 workspace = workspaceDir,
@@ -567,12 +568,12 @@ class ClawCodexController(context: Context) {
                 // Package installation uses the Android IPv4 bridge, including its
                 // allowlisted HTTP forwarding for Ubuntu's package repositories.
                 useAgentProxy = true,
-            ) { live -> _state.update { it.copy(workspaceLiveOutput = live.takeLast(2400)) } }
+            ) { live -> _state.update { it.copy(connectionOutput = live.takeLast(3500)) } }
             _state.update {
                 it.copy(
                     workspaceRunning = false,
-                    workspaceLiveOutput = "",
                     workspaceLog = (it.workspaceLog + result.output).takeLast(MAX_WORKSPACE_LOG),
+                    connectionOutput = result.output.ifBlank { result.error.orEmpty() }.takeLast(3500),
                     lastError = result.error,
                 )
             }
@@ -590,19 +591,19 @@ class ClawCodexController(context: Context) {
             .apply()
         val target = if (cleanUser.isBlank()) cleanHost else "$cleanUser@$cleanHost"
         val command = "ssh -p ${port.coerceIn(1, 65535)} -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 $target 'printf CLAW_SERVER_OK'"
-        _state.update { it.copy(workspaceRunning = true, workspaceLiveOutput = "Testing SSH…") }
+        _state.update { it.copy(workspaceRunning = true, connectionOutput = "Testing SSH…", lastError = null) }
         scope.launch {
             val result = runCommand(
                 workspace = workspaceDir,
                 guestWorkspace = "/workspace/codex-agent",
                 command = listOf("/usr/bin/env", "bash", "-lc", command),
                 useAgentProxy = false,
-            ) { live -> _state.update { it.copy(workspaceLiveOutput = live.takeLast(2000)) } }
+            ) { live -> _state.update { it.copy(connectionOutput = live.takeLast(3500)) } }
             _state.update {
                 it.copy(
                     workspaceRunning = false,
-                    workspaceLiveOutput = "",
                     workspaceLog = (it.workspaceLog + result.output).takeLast(MAX_WORKSPACE_LOG),
+                    connectionOutput = result.output.ifBlank { result.error.orEmpty() }.takeLast(3500),
                     lastError = result.error,
                 )
             }

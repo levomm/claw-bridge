@@ -171,6 +171,13 @@ internal object CodexRuntimeLogic {
         return listOfNotNull(headline, version?.let { "Codex CLI $it" }).joinToString("\n")
     }
 
+    fun extractSshPublicKey(rawOutput: String): String? = sanitize(rawOutput)
+        .lineSequence()
+        .map(String::trim)
+        .lastOrNull { line ->
+            line.startsWith("ssh-ed25519 ") && line.split(Regex("\\s+")).size >= 2
+        }
+
     fun sanitize(raw: String): String {
         var output = sanitizeTerminalOutput(raw)
         secretPatterns.forEach { pattern -> output = output.replace(pattern, "[REDACTED]") }
