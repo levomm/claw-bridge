@@ -1,0 +1,97 @@
+name: Native Android APK
+
+on:
+  push:
+    branches: [mobile-harness-integration]
+    paths:
+      - "native/**"
+      - "gateway/**"
+      - ".gitmodules"
+      - ".github/workflows/native-android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-native-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Restore stable Android preview signing key
+        id: preview-signing-key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: claw-bridge-native-debug-keystore-v1
+
+      - name: Require the stable Android preview signing key
+        run: |
+          if [ "${{ steps.preview-signing-key.outputs.cache-hit }}" != "true" ] || [ ! -f "$HOME/.android/debug.keystore" ]; then
+            echo "Stable preview signing key is unavailable; refusing to publish an APK with a new identity." >&2
+            exit 1
+          fi
+          echo "MH_PREVIEW_STORE_FILE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
+
+      - name: Install gateway dependencies
+        run: npm --prefix gateway ci
+
+      - name: Test gateway
+        run: npm --prefix gateway test
+
+      - name: Syntax-check CLAW tool bridges
+        run: |
+          node --check gateway/claw-tool.mjs
+          node --check gateway/telegram-bridge.mjs
+          node --check gateway/telegram-api.mjs
+          node --check gateway/service-runner.mjs
+          node --check gateway/proxy-policy.mjs
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android native toolchain
+        run: sdkmanager "platforms;android-36" "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Test native runtime
+        working-directory: native
+        run: ./gradlew testOnlineDebugUnitTest --no-daemon
+
+      - name: Build native preview APK
+        working-directory: native
+        run: ./gradlew assembleOnlineDebug --no-daemon
+
+      - name: Verify native preview signing identity
+        run: |
+          APK="native/app/build/outputs/apk/online/debug/app-online-debug.apk"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          EXPECTED="$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1 | tr '[:upper:]' '[:lower:]')"
+          SIGNING_INFO="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          printf '%s\n' "$SIGNING_INFO"
+          ACTUAL="$(printf '%s\n' "$SIGNING_INFO" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          test -n "$EXPECTED"
+          test -n "$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Upload native preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: claw-bridge-native-v0.6.11-alpha
+          path: native/app/build/outputs/apk/online/debug/app-online-debug.apk
+          if-no-files-found: error
+          retention-days: 30

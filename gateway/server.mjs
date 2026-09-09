@@ -1,4 +1,4 @@
-import { createServer } from "node:http"
+import { createServer, request as requestHttp } from "node:http"
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto"
 import { access, mkdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { constants } from "node:fs"
@@ -8,8 +8,9 @@ import { spawn } from "node:child_process"
 import { lookup } from "node:dns/promises"
 import { connect as connectTcp } from "node:net"
 import { WebSocketServer, WebSocket } from "ws"
+import { parseAllowedHttpProxyTarget, proxyHostAllowed } from "./proxy-policy.mjs"
 
-const VERSION = "0.3.0"
+const VERSION = "0.4.0"
 const PORT = Number(process.env.CLAW_PORT || 8787)
 const HOST = process.env.CLAW_HOST || "127.0.0.1"
 const IPV4_PROXY_PORT = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
@@ -17,6 +18,8 @@ const IPV4_PROXY_HOST = "127.0.0.1"
 const IPV4_PROXY_URL = `http://${IPV4_PROXY_HOST}:${IPV4_PROXY_PORT}`
 const IPV4_PROXY_ENABLED = process.env.CLAW_IPV4_PROXY !== "0"
 const DATA_DIR = process.env.CLAW_DATA_DIR || join(homedir(), ".openclaw")
+const WINDOWS_HOST_URL = process.env.CLAW_WINDOWS_URL || ""
+const WINDOWS_HOST_TOKEN = process.env.CLAW_WINDOWS_TOKEN || ""
 const TOKEN_FILE = join(DATA_DIR, "token")
 const AUDIT_FILE = join(DATA_DIR, "audit.json")
 const startTime = Date.now()
@@ -30,7 +33,12 @@ const allowedRules = new Set()
 const sessions = new Map()
 const runs = new Map()
 const clients = new Set()
-const proxyDomainSuffixes = ["openai.com", "chatgpt.com", "oaiusercontent.com", "oaistatic.com", "anthropic.com", "claude.ai"]
+const agentPath = [...new Set([
+  ...(process.env.PATH || "").split(":").filter(Boolean),
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+])].join(":")
 
 function now() {
   return new Date().toISOString()
@@ -102,17 +110,19 @@ async function deviceInfo() {
 async function status() {
   const termuxApi = await commandExists("termux-battery-status")
   const shizuku = (await capture("sh", ["-c", "ps -A 2>/dev/null | grep -qi shizuku && echo yes"])) === "yes"
-  const androidRuntime = platform() === "android" || String(process.env.PREFIX || "").includes("com.termux")
+  const nativeAndroid = process.env.CLAW_NATIVE_ANDROID === "1"
+  const androidRuntime = nativeAndroid || platform() === "android" || String(process.env.PREFIX || "").includes("com.termux")
   return {
     gateway: "online",
     gatewayName: process.env.CLAW_NAME || hostname() || "claw-bridge",
     version: VERSION,
     uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
-    termux: androidRuntime ? "online" : "degraded",
+    termux: nativeAndroid ? "offline" : androidRuntime ? "online" : "degraded",
     termuxApi: termuxApi ? "online" : "offline",
     android: androidRuntime ? "online" : "degraded",
     telegramBot: process.env.TELEGRAM_BOT_TOKEN ? "online" : "offline",
     shizuku: shizuku ? "online" : "offline",
+    windowsHost: WINDOWS_HOST_URL && WINDOWS_HOST_TOKEN ? "unknown" : "offline",
     device: await deviceInfo(),
     activeRuns: runs.size,
     pendingApprovals: [...approvals.values()].filter((item) => item.status === "pending").length,
@@ -161,18 +171,14 @@ function buildCommand(input, target) {
   return { command: "sh", args: ["-c", input], display: input }
 }
 
-function proxyHostAllowed(host) {
-  const normalized = String(host).toLowerCase().replace(/\.$/, "")
-  return proxyDomainSuffixes.some((suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`))
-}
-
 function agentEnvironment() {
-  if (!IPV4_PROXY_ENABLED) return process.env
+  const base = { ...process.env, PATH: agentPath }
+  if (!IPV4_PROXY_ENABLED) return base
   const bypass = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost", "::1"]
     .filter(Boolean)
     .join(",")
   return {
-    ...process.env,
+    ...base,
     HTTP_PROXY: IPV4_PROXY_URL,
     HTTPS_PROXY: IPV4_PROXY_URL,
     http_proxy: IPV4_PROXY_URL,
@@ -192,7 +198,7 @@ function emitRun(ws, channel, type, text) {
 
 async function requestApproval(ws, channel, request, display) {
   const project = process.env.CLAW_PROJECT || homedir()
-  const rule = `${request.target}:${project}`
+  const rule = request.scope || `${request.target}:${project}`
   if (request.permissionMode !== "ask" || allowedRules.has(rule)) return true
   const approval = {
     id: id("approval"),
@@ -209,6 +215,86 @@ async function requestApproval(ws, channel, request, display) {
   await broadcastStatus()
   emitRun(ws, channel, "status", `Waiting for approval: ${approval.id}`)
   return new Promise((resolveDecision) => approvalWaiters.set(approval.id, { resolveDecision, rule }))
+}
+
+function remoteHostRequest(method, params) {
+  if (!WINDOWS_HOST_URL || !WINDOWS_HOST_TOKEN) throw new Error("Windows CLAW Host is not paired")
+  return new Promise((resolveRequest, rejectRequest) => {
+    const socket = new WebSocket(WINDOWS_HOST_URL, { maxPayload: 10 * 1024 * 1024 })
+    const authId = id("host_auth")
+    const requestId = id("host_request")
+    let authenticated = false
+    const timer = setTimeout(() => {
+      socket.terminate()
+      rejectRequest(new Error("Windows CLAW Host timed out"))
+    }, 30_000)
+    const finish = (callback) => {
+      clearTimeout(timer)
+      socket.close()
+      callback()
+    }
+    socket.once("error", (error) => finish(() => rejectRequest(error)))
+    socket.once("open", () => {
+      socket.send(JSON.stringify({ type: "auth", id: authId, protocol: 1, token: WINDOWS_HOST_TOKEN }))
+    })
+    socket.on("message", (raw) => {
+      let message
+      try {
+        message = JSON.parse(raw.toString())
+      } catch {
+        finish(() => rejectRequest(new Error("Windows CLAW Host returned invalid JSON")))
+        return
+      }
+      if (!authenticated && message.id === authId) {
+        if (!message.ok) {
+          finish(() => rejectRequest(new Error(message.error?.message || "Windows CLAW Host authentication failed")))
+          return
+        }
+        authenticated = true
+        socket.send(JSON.stringify({ type: "request", id: requestId, method, params }))
+        return
+      }
+      if (authenticated && message.id === requestId) {
+        if (message.ok) finish(() => resolveRequest(message.result))
+        else finish(() => rejectRequest(new Error(message.error?.message || "Windows CLAW Host request failed")))
+      }
+    })
+  })
+}
+
+const hostApprovalMethods = new Set([
+  "host.files.write",
+  "host.shell.exec",
+  "host.app.launch",
+  "host.browser.open",
+  "host.ui.focus",
+  "host.ui.invoke",
+  "host.ui.setValue",
+  "host.ui.click",
+  "host.ui.sendKeys",
+  "host.screenshot.capture",
+])
+
+async function dispatchHost(ws, method, params = {}) {
+  let approved = !hostApprovalMethods.has(method)
+  if (!approved) {
+    const channel = params.channel || "windows-host"
+    approved = await requestApproval(
+      ws,
+      channel,
+      {
+        target: "windows",
+        permissionMode: params.permissionMode || "ask",
+        scope: `windows:${method}:${params.rootIndex || 0}`,
+      },
+      `${method} ${params.path || params.command || params.url || params.executable || ""}`.trim(),
+    )
+  }
+  if (!approved) throw new Error("Windows action was denied")
+  const forwarded = { ...params, approved }
+  delete forwarded.permissionMode
+  delete forwarded.channel
+  return remoteHostRequest(method, forwarded)
 }
 
 async function startRun(ws, params) {
@@ -321,6 +407,7 @@ async function resolveApproval(params) {
 }
 
 async function dispatch(ws, method, params) {
+  if (String(method).startsWith("host.")) return dispatchHost(ws, method, params)
   switch (method) {
     case "status.get": return status()
     case "run.start": void startRun(ws, params).catch((error) => emitRun(ws, params?.channel, "error", error.message)); return { accepted: true }
@@ -377,14 +464,45 @@ function connectFirstIpv4(addresses, port) {
   })
 }
 
-const ipv4Proxy = createServer((request, response) => {
+const ipv4Proxy = createServer(async (request, response) => {
   if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" })
     response.end(JSON.stringify({ ok: true, family: 4 }))
     return
   }
-  response.writeHead(405, { "content-type": "text/plain" })
-  response.end("HTTPS CONNECT only\n")
+  const parsed = parseAllowedHttpProxyTarget(request.method, request.url)
+  if (!parsed.ok) {
+    response.writeHead(parsed.status, { "content-type": "text/plain" })
+    response.end("Proxy request rejected\n")
+    return
+  }
+  try {
+    const records = await lookup(parsed.target.hostname, { family: 4, all: true })
+    const address = records[0]?.address
+    if (!address) throw new Error("No IPv4 address available")
+    const headers = { ...request.headers, host: parsed.target.host }
+    delete headers["proxy-connection"]
+    const upstream = requestHttp({
+      host: address,
+      port: 80,
+      method: request.method,
+      path: `${parsed.target.pathname}${parsed.target.search}`,
+      headers,
+      family: 4,
+    }, (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers)
+      upstreamResponse.pipe(response)
+    })
+    upstream.setTimeout(15_000, () => upstream.destroy(new Error("IPv4 upstream request timed out")))
+    upstream.on("error", () => {
+      if (!response.headersSent) response.writeHead(502, { "content-type": "text/plain" })
+      response.end("IPv4 upstream request failed\n")
+    })
+    request.pipe(upstream)
+  } catch {
+    response.writeHead(502, { "content-type": "text/plain" })
+    response.end("IPv4 upstream connection failed\n")
+  }
 })
 
 ipv4Proxy.on("connect", async (request, clientSocket, head) => {

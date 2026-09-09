@@ -1,0 +1,194 @@
+import java.util.Properties
+import org.gradle.api.tasks.Sync
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val testSecrets = Properties().apply {
+    val secretsFile = rootProject.file("test-secrets.properties")
+    if (secretsFile.isFile) secretsFile.inputStream().use(::load)
+}
+val playBuild = providers.gradleProperty("playBuild").orNull?.toBoolean() == true ||
+    providers.gradleProperty("playFeasibility").orNull?.toBoolean() == true
+val privacyPolicyUrl = providers.gradleProperty("privacyPolicyUrl").orNull
+    ?: "https://github.com/levomm/openclaw-2/blob/mobile-harness-integration/native/PRIVACY.md"
+val uploadStorePath = providers.environmentVariable("MH_UPLOAD_STORE_FILE").orNull
+val uploadStorePassword = providers.environmentVariable("MH_UPLOAD_STORE_PASSWORD").orNull
+val uploadKeyAlias = providers.environmentVariable("MH_UPLOAD_KEY_ALIAS").orNull
+val uploadKeyPassword = providers.environmentVariable("MH_UPLOAD_KEY_PASSWORD").orNull
+val hasUploadSigning = listOf(uploadStorePath, uploadStorePassword, uploadKeyAlias, uploadKeyPassword).all { !it.isNullOrBlank() }
+val previewStorePath = providers.environmentVariable("MH_PREVIEW_STORE_FILE").orNull
+val runtimeReleaseBaseUrl = "https://github.com/techjarves/Mobile-Harness/releases/download/runtime-2026.09.4"
+val appUpdateManifestUrl = "https://github.com/levomm/openclaw-2/releases/latest/download/claw-bridge-update.json"
+val runtimeBundleDir = rootProject.layout.projectDirectory.dir("dist/runtime-bundles")
+val generatedRuntimeAssets = layout.buildDirectory.dir("generated/runtime-assets")
+val clawGatewaySourceDir = rootProject.layout.projectDirectory.dir("../gateway")
+val generatedClawGatewayAssets = layout.buildDirectory.dir("generated/claw-gateway-assets")
+val clawGatewayVersion = "0.5.2"
+
+val prepareOfflineRuntimeAssets = tasks.register<Sync>("prepareOfflineRuntimeAssets") {
+    from(
+        runtimeBundleDir.file("pocketdev-core-arm64-2026.09.4.tar.zst"),
+        runtimeBundleDir.file("pocketdev-python-arm64-2026.09.2.tar.zst"),
+        runtimeBundleDir.file("pocketdev-android-arm64-2026.09.1.tar.zst"),
+    )
+    into(generatedRuntimeAssets.map { it.dir("offline/runtime") })
+}
+
+val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") {
+    from(clawGatewaySourceDir) {
+        include("server.mjs")
+        include("proxy-policy.mjs")
+        include("host-mcp.mjs")
+        include("claw-tool.mjs")
+        include("telegram-bridge.mjs")
+        include("telegram-api.mjs")
+        include("service-runner.mjs")
+        include("package.json")
+        include("package-lock.json")
+        include("node_modules/ws/**")
+    }
+    into(generatedClawGatewayAssets.map { it.dir("claw-gateway") })
+    doFirst {
+        check(clawGatewaySourceDir.file("node_modules/ws/package.json").asFile.isFile) {
+            "Run `npm --prefix gateway ci` before building the native APK."
+        }
+        listOf("claw-tool.mjs", "telegram-bridge.mjs", "telegram-api.mjs", "service-runner.mjs").forEach { fileName ->
+            check(clawGatewaySourceDir.file(fileName).asFile.isFile) {
+                "CLAW gateway asset is missing: $fileName"
+            }
+        }
+    }
+}
+
+fun buildConfigString(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+android {
+    namespace = "com.jarves.mh"
+    compileSdk = 36
+    ndkVersion = providers.gradleProperty("mhNdkVersion").orNull ?: "26.1.10909125"
+
+    signingConfigs {
+        if (!previewStorePath.isNullOrBlank()) {
+            create("preview") {
+                storeFile = rootProject.file(checkNotNull(previewStorePath))
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+        if (hasUploadSigning) {
+            create("upload") {
+                storeFile = rootProject.file(checkNotNull(uploadStorePath))
+                storePassword = checkNotNull(uploadStorePassword)
+                keyAlias = checkNotNull(uploadKeyAlias)
+                keyPassword = checkNotNull(uploadKeyPassword)
+            }
+        }
+    }
+
+    defaultConfig {
+        applicationId = "ee.clawbridge.app.native"
+        minSdk = 28
+        targetSdk = if (playBuild) 36 else 28
+        versionCode = 19
+        versionName = "0.6.11-native-alpha"
+        providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
+        providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
+
+        ndk.abiFilters += "arm64-v8a"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables.useSupportLibrary = true
+        buildConfigField("boolean", "IS_PLAY_BUILD", playBuild.toString())
+        buildConfigField("String", "PRIVACY_POLICY_URL", buildConfigString(privacyPolicyUrl))
+        buildConfigField("String", "CLAW_GATEWAY_VERSION", buildConfigString(clawGatewayVersion))
+        buildConfigField("String", "TEST_OPENROUTER_API_KEY", "\"\"")
+    }
+
+    flavorDimensions += "runtimeDelivery"
+    productFlavors {
+        create("online") {
+            dimension = "runtimeDelivery"
+            buildConfigField("boolean", "OFFLINE_RUNTIME_BUNDLES", "false")
+            buildConfigField("String", "RUNTIME_RELEASE_BASE_URL", buildConfigString(runtimeReleaseBaseUrl))
+            buildConfigField("String", "APP_UPDATE_MANIFEST_URL", buildConfigString(appUpdateManifestUrl))
+            buildConfigField("String", "APP_VARIANT", "\"online\"")
+        }
+        create("offline") {
+            dimension = "runtimeDelivery"
+            buildConfigField("boolean", "OFFLINE_RUNTIME_BUNDLES", "true")
+            buildConfigField("String", "RUNTIME_RELEASE_BASE_URL", buildConfigString(runtimeReleaseBaseUrl))
+            buildConfigField("String", "APP_UPDATE_MANIFEST_URL", buildConfigString(appUpdateManifestUrl))
+            buildConfigField("String", "APP_VARIANT", "\"offline\"")
+        }
+    }
+
+    sourceSets.getByName("offline").assets.srcDir(generatedRuntimeAssets.map { it.dir("offline") })
+    sourceSets.getByName("main").assets.srcDir(generatedClawGatewayAssets)
+
+    buildTypes {
+        debug {
+            if (!previewStorePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("preview")
+            buildConfigField("String", "TEST_OPENROUTER_API_KEY", buildConfigString(testSecrets.getProperty("openrouter.apiKey", "")))
+        }
+        release {
+            isMinifyEnabled = false
+            if (hasUploadSigning) signingConfig = signingConfigs.getByName("upload")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+        freeCompilerArgs += "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api"
+    }
+    buildFeatures { compose = true; buildConfig = true }
+    externalNativeBuild {
+        cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" }
+    }
+    packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    packaging.jniLibs.useLegacyPackaging = true
+    androidResources.noCompress += "zst"
+}
+
+tasks.matching { it.name.startsWith("mergeOffline") && it.name.endsWith("Assets") }.configureEach { dependsOn(prepareOfflineRuntimeAssets) }
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach { dependsOn(prepareClawGatewayAssets) }
+tasks.matching { it.name.contains("Offline") && it.name.contains("lint", ignoreCase = true) }.configureEach { dependsOn(prepareOfflineRuntimeAssets) }
+
+tasks.register("playReadinessCheck") {
+    group = "verification"
+    description = "Checks configuration required before uploading a CLAW Bridge Play bundle."
+    doLast {
+        check(playBuild) { "Run with -PplayBuild=true." }
+        check(privacyPolicyUrl.startsWith("https://")) { "privacyPolicyUrl must be a public HTTPS URL." }
+        check(hasUploadSigning) { "Set MH_UPLOAD_STORE_FILE, MH_UPLOAD_STORE_PASSWORD, MH_UPLOAD_KEY_ALIAS, and MH_UPLOAD_KEY_PASSWORD." }
+    }
+}
+
+dependencies {
+    implementation(platform("androidx.compose:compose-bom:2025.02.00"))
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-compose:1.10.0")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("com.github.luben:zstd-jni:1.5.6-9@aar")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250107")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}

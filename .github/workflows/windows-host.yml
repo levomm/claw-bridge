@@ -1,0 +1,59 @@
+name: Windows CLAW Host
+
+on:
+  push:
+    branches: [mobile-harness-integration]
+    paths:
+      - "host/**"
+      - ".github/workflows/windows-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows-host:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host/package-lock.json
+      - name: Install dependencies
+        working-directory: host
+        run: npm ci
+      - name: Test CLAW Host
+        working-directory: host
+        shell: pwsh
+        run: |
+          npm test *>&1 | Tee-Object windows-test.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claw-host-windows-test-log
+          path: host/windows-test.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Package standalone Windows host
+        shell: pwsh
+        run: |
+          $null = [scriptblock]::Create((Get-Content host\install-windows.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content host\uninstall-windows.ps1 -Raw))
+          $dist = Join-Path $PWD 'dist\claw-host-windows'
+          New-Item -ItemType Directory -Force -Path $dist, (Join-Path $dist 'runtime') | Out-Null
+          Copy-Item host\server.mjs, host\package.json, host\package-lock.json, host\README.md, host\install-windows.ps1, host\uninstall-windows.ps1 $dist
+          Copy-Item host\node_modules $dist -Recurse
+          Copy-Item (Get-Command node.exe).Source (Join-Path $dist 'runtime\node.exe')
+          $nodeLicense = Join-Path (Split-Path (Get-Command node.exe).Source) 'LICENSE'
+          if (Test-Path $nodeLicense) { Copy-Item $nodeLicense (Join-Path $dist 'runtime\NODE-LICENSE') }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claw-host-windows-v0.1.0
+          path: dist/claw-host-windows/
+          if-no-files-found: error
+          retention-days: 30

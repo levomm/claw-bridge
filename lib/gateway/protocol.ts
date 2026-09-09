@@ -16,6 +16,16 @@ export type GatewayMethod =
   | "approvals.list"
   | "approvals.resolve"
   | "audit.list"
+  | "host.status"
+  | "host.files.list"
+  | "host.files.read"
+  | "host.files.write"
+  | "host.shell.exec"
+  | "host.app.launch"
+  | "host.browser.open"
+  | "host.ui.windows"
+  | "host.ui.focus"
+  | "host.screenshot.capture"
 
 export interface RequestMessage {
   type: "request"

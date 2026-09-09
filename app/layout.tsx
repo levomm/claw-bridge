@@ -1,14 +1,10 @@
 import { Analytics } from "@vercel/analytics/next"
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
 import { BridgeProvider } from "@/components/providers/bridge-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { BiometricGate } from "@/components/biometric-gate"
 import { LaunchSplash } from "@/components/launch-splash"
 import "./globals.css"
-
-const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
-const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
   title: {
@@ -52,8 +48,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="et" className={`dark bg-background ${geistSans.variable} ${geistMono.variable}`}>
-      <body className="min-h-dvh font-sans antialiased">
+    <html lang="et" className="dark bg-background">
+      <body className="min-h-dvh antialiased">
         <LaunchSplash />
         <BridgeProvider>
           <BiometricGate>{children}</BiometricGate>

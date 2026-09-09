@@ -38,6 +38,9 @@ export function LaunchSplash() {
       </div>
       <div className="claw-launch__name">CLAW <span>BRIDGE</span></div>
       <div className="claw-launch__version">v0.3 beta</div>
+      <div className="mt-2 text-[9px] font-normal tracking-[0.14em] text-[#4c535c] [font-family:sans-serif]">
+        dev by osx01
+      </div>
     </div>
   )
 }

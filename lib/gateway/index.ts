@@ -10,6 +10,11 @@ export const TARGET_LABELS = {
   ssh: "SSH",
 } as const
 
+export const APPROVAL_AGENT_LABELS = {
+  ...TARGET_LABELS,
+  windows: "Windows",
+} as const
+
 let client: GatewayClient | null = null
 
 /**
