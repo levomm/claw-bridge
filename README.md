@@ -1,90 +1,152 @@
-# CLAW Bridge
+<p align="center">
+  <img src="public/claw-bridge.svg" width="112" alt="CLAW Bridge red crab logo">
+</p>
 
-Android-first local control panel for Codex, Claude Code and Termux. CLAW Bridge runs its lightweight WebSocket gateway directly in Termux and provides both an installable APK and a browser/PWA interface.
+<h1 align="center">CLAW Bridge</h1>
 
-> CLAW Bridge is an independent project. It is not an official OpenClaw release.
+<p align="center">
+  <strong>Android-first local AI agent harness.</strong><br>
+  Run Codex, Claude Code and Termux from one control plane in your pocket.
+</p>
 
-## What is included
+<p align="center">
+  <a href="https://github.com/levomm/openclaw-2/actions/workflows/android-apk.yml"><img alt="Android APK build" src="https://github.com/levomm/openclaw-2/actions/workflows/android-apk.yml/badge.svg"></a>
+  <img alt="Android" src="https://img.shields.io/badge/Android-APK-7CFF6B?style=flat-square&logo=android&logoColor=111">
+  <img alt="Termux" src="https://img.shields.io/badge/Termux-Gateway-EF3D45?style=flat-square&logo=gnometerminal&logoColor=white">
+  <img alt="Status" src="https://img.shields.io/badge/status-early_beta-F2B84B?style=flat-square">
+</p>
 
-- Token-authenticated local WebSocket gateway
-- Live Codex, Claude Code and shell output
-- Interactive Termux terminal
-- `Deny`, `Allow once` and `Always allow` approval flow
-- Biometric or device-lock gate through WebAuthn
-- One-command lifecycle management with PID files, health checks and logs
-- Animated red-crab launch screen and Android adaptive icon
-- Capacitor Android wrapper and GitHub Actions APK build
+![CLAW Bridge — Android-first local agent harness](docs/claw-bridge-hero.svg)
 
-## Install in Termux
+> **Early beta.** CLAW Bridge is an independent project and is not an official OpenClaw release.
 
-Use the F-Droid builds of Termux, Termux:API and optionally Termux:Boot. Clone the project into Termux home, then run:
+## Your phone becomes the control plane
+
+CLAW Bridge puts a lightweight gateway in Termux and a touch-first control panel in an Android APK. The UI, terminal and approval flow stay on your phone; Codex and Claude Code run through their installed CLIs.
+
+- **Live agent runs** — stream Codex, Claude Code and shell output.
+- **Real Termux terminal** — multiple sessions, history and mobile shortcut keys.
+- **Human approval gate** — deny, allow once or remember safe actions.
+- **Local by default** — gateway binds to `127.0.0.1`, not the public internet.
+- **One-command lifecycle** — PID files, health checks, logs and restart handling.
+- **Android security** — pairing token plus biometric/device-lock gate.
+- **IPv4 fallback** — local agent proxy for mobile networks with broken IPv6 routing.
+- **APK + PWA** — use the native Android wrapper or the browser interface.
+
+![CLAW Bridge dashboard, terminal and approvals](docs/app-overview.svg)
+
+## How it fits together
+
+| Layer | Runs where | Purpose |
+|---|---|---|
+| CLAW Bridge APK | Android | Dashboard, terminal, approvals and settings |
+| Gateway | Termux | Authenticated WebSocket bridge and process control |
+| Agents | Termux | Existing Codex and Claude Code CLI sessions |
+| Runtime state | `~/.openclaw/` | Token, PIDs, logs and audit trail |
+
+No Ubuntu/proot container is required. In APK mode the frontend is packaged inside the app, so port `3000` is unnecessary.
+
+## Quick start on Android
+
+Use a recent Termux build, preferably from [F-Droid](https://f-droid.org/packages/com.termux/). Then:
 
 ```bash
-git clone https://github.com/levomm/openclaw-2.git ~/CLAW-Bridge
+git clone https://github.com/levomm/claw-bridge.git ~/CLAW-Bridge
 cd ~/CLAW-Bridge
-node gateway/claw.mjs install
-claw up
-claw status
-```
-
-Open [http://127.0.0.1:3000/pair/](http://127.0.0.1:3000/pair/) on the same phone. Show the local gateway URL and token with:
-
-```bash
+node gateway/claw.mjs install --gateway-only
+claw up --gateway-only
+claw status --gateway-only
 claw pair
 ```
 
-The same-device gateway URL is `ws://127.0.0.1:8787`.
+Healthy APK-mode output includes:
+
+```text
+gateway    HEALTHY
+agent-ipv4 HEALTHY
+```
+
+Install the APK from the latest successful [Android APK workflow](https://github.com/levomm/openclaw-2/actions/workflows/android-apk.yml), open CLAW Bridge and pair it with:
+
+```text
+Gateway: ws://127.0.0.1:8787
+Token:   shown by claw pair
+```
+
+### Browser/PWA mode
+
+To run both the gateway and browser interface:
+
+```bash
+claw install
+claw up
+```
+
+Then open [http://127.0.0.1:3000/pair/](http://127.0.0.1:3000/pair/) on the same phone.
 
 ## CLI
 
 ```text
-claw install
-claw up
-claw down
-claw restart
-claw status
+claw install [--gateway-only]
+claw up [--gateway-only]
+claw down [--gateway-only]
+claw restart [--gateway-only]
+claw status [--gateway-only]
 claw logs [gateway|frontend] [-f]
 claw pair
 claw rotate-token
 ```
 
-Runtime state is kept under `~/.openclaw/`. The gateway listens only on `127.0.0.1` by default. Set `CLAW_HOST=0.0.0.0` only when you intentionally need LAN access and understand that the token protects full shell access.
+| Command | What it does |
+|---|---|
+| `claw up` | Starts services in the background and waits for health checks |
+| `claw status` | Shows process, PID, port and health state |
+| `claw logs gateway -f` | Follows the live gateway log |
+| `claw pair` | Prints the same-device URL and pairing token |
+| `claw rotate-token` | Invalidates the old token and creates a new one |
 
-## Android APK
-
-Every push to `main` runs the **Android APK** workflow. Open the latest successful workflow run, choose **Artifacts**, download `claw-bridge-v0.3-android-beta`, unzip it and install `app-debug.apk`.
-
-The beta APK contains the UI. The gateway still runs in Termux:
-
-```bash
-claw up
-```
-
-Pair the APK with `ws://127.0.0.1:8787` and the token printed by `claw pair`.
-
-## Local development
+## Build and test
 
 ```bash
-npm install
-npm --prefix gateway install
+npm ci
+npm --prefix gateway ci
 npm --prefix gateway test
 npx tsc --noEmit
 env -u NODE_OPTIONS npm run build
 npx cap sync android
 ```
 
-An Android build additionally needs Java 21 and the Android SDK:
+Android compilation requires Java 21 and the Android SDK:
 
 ```bash
 cd android
 ./gradlew assembleDebug
 ```
 
-## Security
+Every push to `main` runs gateway tests, TypeScript checks, the web build and the Android debug APK build.
 
+## Security model
+
+- The gateway listens on `127.0.0.1` by default.
 - Pairing uses a random 192-bit token stored with mode `0600`.
-- The gateway uses constant-time token comparison.
-- Tokens are never printed by `claw up` or ordinary service logs.
-- Runtime directories and PID files use restrictive permissions.
-- Stale PID files and occupied ports are detected before startup.
-- Anyone holding the token can run shell commands. Do not expose port `8787` directly to the public internet.
+- Token comparison is constant-time.
+- Ordinary startup logs never print the token.
+- Runtime directories, logs and PID files use restrictive permissions.
+- The IPv4 agent proxy is loopback-only and restricts outbound tunnel destinations.
+- Anyone holding the pairing token can execute commands. Rotate exposed tokens immediately.
+- Never publish port `8787` directly to the internet.
+
+## Current scope
+
+CLAW Bridge is for developers who want a phone-native control surface for local coding agents. It is not trying to be another generic AI chat app.
+
+**Now:** Android APK, Termux gateway, Codex/Claude/shell runs, live terminal, approvals, audit log and local pairing.
+
+**Next:** signed releases, easier first-run setup, SSH/Windows targets, Telegram control and an optional official OpenClaw protocol adapter.
+
+---
+
+<p align="center">
+  <strong>🦀 CLAW Bridge</strong><br>
+  <sub>Your agents. Your phone. Your control.</sub>
+</p>
