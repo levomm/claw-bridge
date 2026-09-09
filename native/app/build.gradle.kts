@@ -45,6 +45,7 @@ val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") 
         include("host-mcp.mjs")
         include("claw-tool.mjs")
         include("telegram-bridge.mjs")
+        include("telegram-api.mjs")
         include("service-runner.mjs")
         include("package.json")
         include("package-lock.json")
@@ -55,7 +56,7 @@ val prepareClawGatewayAssets = tasks.register<Sync>("prepareClawGatewayAssets") 
         check(clawGatewaySourceDir.file("node_modules/ws/package.json").asFile.isFile) {
             "Run `npm --prefix gateway ci` before building the native APK."
         }
-        listOf("claw-tool.mjs", "telegram-bridge.mjs", "service-runner.mjs").forEach { fileName ->
+        listOf("claw-tool.mjs", "telegram-bridge.mjs", "telegram-api.mjs", "service-runner.mjs").forEach { fileName ->
             check(clawGatewaySourceDir.file(fileName).asFile.isFile) {
                 "CLAW gateway asset is missing: $fileName"
             }
@@ -93,8 +94,8 @@ android {
         applicationId = "ee.clawbridge.app.native"
         minSdk = 28
         targetSdk = if (playBuild) 36 else 28
-        versionCode = 17
-        versionName = "0.6.9-native-alpha"
+        versionCode = 18
+        versionName = "0.6.10-native-alpha"
         providers.gradleProperty("appVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
 

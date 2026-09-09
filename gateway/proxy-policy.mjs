@@ -6,6 +6,7 @@ export const proxyDomainSuffixes = [
   "anthropic.com",
   "claude.ai",
   "ubuntu.com",
+  "telegram.org",
 ]
 
 export function proxyHostAllowed(host) {

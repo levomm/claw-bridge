@@ -755,16 +755,11 @@ private fun ClawConnectionsScreen(viewModel: MainViewModel, controller: ClawCode
             OutlinedTextField(telegramChat, { telegramChat = it }, Modifier.fillMaxWidth(), label = { Text("Chat ID") })
             Button(
                 onClick = {
-                    vault.put("telegram_bot_token", telegramToken)
-                    prefs.edit().putString("telegram_chat", telegramChat.trim()).apply()
-                    GatewayService.restart(context)
-                    val safeChat = telegramChat.trim().replace("'", "")
-                    viewModel.runTerminalCommand("node /opt/claw-gateway/claw-tool.mjs telegram_send '{\"text\":\"CLAW Bridge connected\"}'")
-                    if (safeChat.isBlank()) Unit
+                    controller.testTelegram(telegramToken, telegramChat)
                 },
-                enabled = telegramToken.isNotBlank() && telegramChat.isNotBlank() && !terminalRunning,
+                enabled = telegramToken.isNotBlank() && telegramChat.isNotBlank() && !codexState.workspaceRunning,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Save & test Telegram") }
+            ) { Text(if (codexState.workspaceRunning) "Testing…" else "Save & test Telegram") }
             Text("The bot token is encrypted with Android Keystore.", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 

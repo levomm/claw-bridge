@@ -1,6 +1,7 @@
 import { readFile, rename, unlink, writeFile, mkdir } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { spawn } from "node:child_process"
+import { telegramApi } from "./telegram-api.mjs"
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || ""
 const ALLOWED_CHAT = process.env.TELEGRAM_CHAT_ID || ""
@@ -10,14 +11,7 @@ let offset = 0
 let activeProcess = null
 
 async function api(method, body = {}) {
-  const response = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  const data = await response.json()
-  if (!response.ok || !data.ok) throw new Error(data.description || `Telegram HTTP ${response.status}`)
-  return data.result
+  return telegramApi(TOKEN, method, body)
 }
 
 async function send(text) {

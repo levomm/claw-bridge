@@ -59,6 +59,7 @@ jobs:
         run: |
           node --check gateway/claw-tool.mjs
           node --check gateway/telegram-bridge.mjs
+          node --check gateway/telegram-api.mjs
           node --check gateway/service-runner.mjs
           node --check gateway/proxy-policy.mjs
 
@@ -90,7 +91,7 @@ jobs:
       - name: Upload native preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: claw-bridge-native-v0.6.9-alpha
+          name: claw-bridge-native-v0.6.10-alpha
           path: native/app/build/outputs/apk/online/debug/app-online-debug.apk
           if-no-files-found: error
           retention-days: 30

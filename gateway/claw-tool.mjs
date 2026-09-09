@@ -3,6 +3,7 @@ import { readFile, rename, unlink, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { spawn } from "node:child_process"
 import { hostRequest } from "./host-mcp.mjs"
+import { telegramApi } from "./telegram-api.mjs"
 
 const APPROVAL_DIR = process.env.CLAW_APPROVAL_DIR || "/pocket-bridge"
 const SERVER_HOST = process.env.CLAW_SERVER_HOST || ""
@@ -170,14 +171,11 @@ async function telegramSend(input) {
   if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) throw new Error("Telegram is not configured")
   const text = String(input.text || "").trim()
   if (!text) throw new Error("text is required")
-  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text.slice(0, 4000) }),
+  const result = await telegramApi(TELEGRAM_TOKEN, "sendMessage", {
+    chat_id: TELEGRAM_CHAT_ID,
+    text: text.slice(0, 4000),
   })
-  const result = await response.json()
-  if (!response.ok || !result.ok) throw new Error(result.description || `Telegram HTTP ${response.status}`)
-  return { sent: true, messageId: result.result?.message_id }
+  return { sent: true, messageId: result?.message_id }
 }
 
 async function main() {

@@ -610,6 +610,48 @@ class ClawCodexController(context: Context) {
         }
     }
 
+    fun testTelegram(token: String, chatId: String) {
+        val cleanToken = token.trim()
+        val cleanChatId = chatId.trim()
+        if (!Regex("^[0-9]+:[A-Za-z0-9_-]+$").matches(cleanToken)) {
+            _state.update { it.copy(connectionOutput = "Invalid Telegram bot token. Copy the complete token from @BotFather.", lastError = "Invalid Telegram bot token") }
+            return
+        }
+        if (!Regex("^-?[0-9]+$").matches(cleanChatId)) {
+            _state.update { it.copy(connectionOutput = "Invalid Telegram Chat ID. It must contain numbers only.", lastError = "Invalid Telegram Chat ID") }
+            return
+        }
+        connectionVault.put("telegram_bot_token", cleanToken)
+        connectionPreferences.edit().putString("telegram_chat", cleanChatId).apply()
+        GatewayService.restart(appContext)
+        _state.update { it.copy(workspaceRunning = true, connectionOutput = "Testing Telegram…", lastError = null) }
+        scope.launch {
+            val result = runCommand(
+                workspace = workspaceDir,
+                guestWorkspace = "/workspace/codex-agent",
+                command = listOf(
+                    "/usr/bin/env", "node", "/opt/claw-gateway/claw-tool.mjs",
+                    "telegram_send", "{\"text\":\"CLAW Bridge connected\"}",
+                ),
+                useAgentProxy = true,
+                maxRuntimeMillis = 30_000,
+            ) { live -> _state.update { it.copy(connectionOutput = live.takeLast(3500)) } }
+            val visibleOutput = if (result.error == null) {
+                "CLAW_TELEGRAM_OK\nA test message was sent to Telegram."
+            } else {
+                result.error.ifBlank { result.output }.takeLast(3500)
+            }
+            _state.update {
+                it.copy(
+                    workspaceRunning = false,
+                    workspaceLog = (it.workspaceLog + result.output).takeLast(MAX_WORKSPACE_LOG),
+                    connectionOutput = visibleOutput,
+                    lastError = result.error,
+                )
+            }
+        }
+    }
+
     private suspend fun runCommand(
         workspace: File,
         guestWorkspace: String,
