@@ -33,8 +33,10 @@ export function AppShell({
   const pending = status?.pendingApprovals ?? 0
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      <header className="sticky top-0 z-10 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur">
+    <div className="claw-shell relative isolate flex min-h-dvh flex-col overflow-x-clip bg-background text-foreground">
+      <div className="claw-orbit" aria-hidden />
+
+      <header className="sticky top-0 z-10 border-b border-border bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur">
         <div className="flex h-14 items-center justify-between px-4">
           <div className="flex items-center gap-3">
             <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">CLAW</span>
@@ -48,7 +50,7 @@ export function AppShell({
       </header>
 
       <main
-        className={cn("flex-1", padded && "px-4 py-4")}
+        className={cn("relative z-[1] flex-1", padded && "px-4 py-4")}
         style={{ paddingBottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
       >
         {children}
@@ -56,7 +58,7 @@ export function AppShell({
 
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background"
+        className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <ul className="grid h-16 grid-cols-5">

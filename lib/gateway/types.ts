@@ -1,3 +1,5 @@
+import type { SeekClawClient } from "../seekclaw/types"
+
 // Typed contract between the UI and any gateway transport.
 // MockGatewayClient implements this today; a WebSocket/HTTP client can replace it later.
 
@@ -112,7 +114,7 @@ export class GatewayError extends Error {
   }
 }
 
-export interface GatewayClient {
+export interface GatewayClient extends SeekClawClient {
   /** Validate credentials and open a session. Resolves with the initial status. */
   connect(connection: GatewayConnection): Promise<GatewayStatus>
   disconnect(): void

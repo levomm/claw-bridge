@@ -162,6 +162,54 @@
   }
 }
 
+.claw-shell {
+  --claw-red: #ef3d45;
+}
+
+.claw-orbit {
+  pointer-events: none;
+  position: fixed;
+  z-index: 0;
+  top: -24rem;
+  right: -26rem;
+  width: 42rem;
+  height: 42rem;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--claw-red) 88%, transparent);
+  opacity: .82;
+  background:
+    radial-gradient(circle at 32% 68%, rgb(239 61 69 / 18%) 0 1px, transparent 2px) 0 0 / 18px 18px,
+    radial-gradient(circle at 50% 50%, rgb(239 61 69 / 14%), transparent 58%);
+  box-shadow:
+    0 0 16px rgb(239 61 69 / 58%),
+    0 0 42px rgb(239 61 69 / 30%),
+    inset 0 0 54px rgb(239 61 69 / 14%);
+  filter: saturate(1.15);
+}
+
+.claw-orbit::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1px solid rgb(255 255 255 / 5%);
+  mask: linear-gradient(135deg, #000 0 36%, transparent 67%);
+}
+
+.light .claw-orbit,
+:root:not(.dark) .claw-orbit {
+  opacity: .2;
+}
+
+@media (max-width: 480px) {
+  .claw-orbit {
+    top: -18rem;
+    right: -21rem;
+    width: 34rem;
+    height: 34rem;
+  }
+}
+
 .claw-launch {
   position: fixed;
   inset: 0;

@@ -8,6 +8,9 @@ import { spawn } from "node:child_process"
 import { lookup } from "node:dns/promises"
 import { connect as connectTcp } from "node:net"
 import { WebSocketServer, WebSocket } from "ws"
+import { SeekClawHttpAdapter } from "./seekclaw/adapter.mjs"
+import { JobStore } from "./seekclaw/store.mjs"
+import { SeekClawService } from "./seekclaw/service.mjs"
 
 const VERSION = "0.3.0"
 const PORT = Number(process.env.CLAW_PORT || 8787)
@@ -23,6 +26,8 @@ const startTime = Date.now()
 
 await mkdir(DATA_DIR, { recursive: true, mode: 0o700 })
 const TOKEN = await loadToken()
+const seekclaw = new SeekClawService({ adapter: new SeekClawHttpAdapter(), store: new JobStore(join(DATA_DIR, "seekclaw-jobs.json")) })
+await seekclaw.recover()
 let audit = await readJson(AUDIT_FILE, [])
 const approvals = new Map()
 const approvalWaiters = new Map()
@@ -115,7 +120,7 @@ async function status() {
     shizuku: shizuku ? "online" : "offline",
     device: await deviceInfo(),
     activeRuns: runs.size,
-    pendingApprovals: [...approvals.values()].filter((item) => item.status === "pending").length,
+    pendingApprovals: (await approvalList()).filter((item) => item.status === "pending").length,
     lastHeartbeat: now(),
   }
 }
@@ -138,12 +143,12 @@ async function broadcastStatus() {
   broadcast({ type: "event", event: "status", data: await status() })
 }
 
-function approvalList() {
-  return [...approvals.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+async function approvalList() {
+  return [...approvals.values(), ...await seekclaw.listApprovals()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
-function broadcastApprovals() {
-  broadcast({ type: "event", event: "approvals", data: approvalList() })
+async function broadcastApprovals() {
+  broadcast({ type: "event", event: "approvals", data: await approvalList() })
 }
 
 function riskOf(command) {
@@ -205,7 +210,7 @@ async function requestApproval(ws, channel, request, display) {
     status: "pending",
   }
   approvals.set(approval.id, approval)
-  broadcastApprovals()
+  await broadcastApprovals()
   await broadcastStatus()
   emitRun(ws, channel, "status", `Waiting for approval: ${approval.id}`)
   return new Promise((resolveDecision) => approvalWaiters.set(approval.id, { resolveDecision, rule }))
@@ -302,6 +307,19 @@ async function execTerminal(ws, params) {
 
 async function resolveApproval(params) {
   const { approvalId, decision } = params || {}
+  if (!["deny", "allow-once", "always-allow"].includes(decision)) throw new Error("Invalid approval decision")
+  if (typeof approvalId === "string" && approvalId.startsWith("seekclaw_approval_")) {
+    const pending = (await seekclaw.listApprovals()).find(item => item.id === approvalId)
+    if (!pending) throw new Error("Approval no longer pending")
+    await seekclaw.resolveApproval(approvalId, decision)
+    // The durable job history is authoritative even if the shared audit write fails.
+    audit = [{ id: id("audit"), approvalId, command: pending.command, agent: pending.agent,
+      project: pending.project, risk: pending.risk, decision, decidedAt: now() }, ...audit].slice(0, 1000)
+    await writeFile(AUDIT_FILE, JSON.stringify(audit, null, 2), { mode: 0o600 })
+    await broadcastApprovals()
+    await broadcastStatus()
+    return { ...pending, status: decision === "deny" ? "denied" : "allowed-once" }
+  }
   const approval = approvals.get(approvalId)
   if (!approval || approval.status !== "pending") throw new Error("Approval no longer exists")
   approval.status = decision === "deny" ? "denied" : decision === "allow-once" ? "allowed-once" : "always-allowed"
@@ -315,13 +333,23 @@ async function resolveApproval(params) {
   audit = [entry, ...audit].slice(0, 1000)
   await writeFile(AUDIT_FILE, JSON.stringify(audit, null, 2), { mode: 0o600 })
   waiter?.resolveDecision(decision !== "deny")
-  broadcastApprovals()
+  await broadcastApprovals()
   await broadcastStatus()
   return approval
 }
 
 async function dispatch(ws, method, params) {
   switch (method) {
+    case "seekclaw.jobs.list": return seekclaw.list()
+    case "seekclaw.jobs.get": return seekclaw.get(params?.jobId)
+    case "seekclaw.jobs.discover": return seekclaw.discover()
+    case "seekclaw.jobs.evaluate": return seekclaw.evaluate(params?.jobId, params?.profile)
+    case "seekclaw.jobs.act": {
+      const result = await seekclaw.act(params?.jobId, params?.revision, params?.action)
+      await broadcastApprovals()
+      await broadcastStatus()
+      return result
+    }
     case "status.get": return status()
     case "run.start": void startRun(ws, params).catch((error) => emitRun(ws, params?.channel, "error", error.message)); return { accepted: true }
     case "run.stop": runs.get(params?.channel)?.kill("SIGTERM"); return { stopped: true }
