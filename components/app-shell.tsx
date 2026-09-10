@@ -7,25 +7,28 @@ import { LayoutGridIcon, SendIcon, TerminalSquareIcon, ShieldCheckIcon, Settings
 import { cn } from "@/lib/utils"
 import { useBridge } from "@/components/providers/bridge-provider"
 import { useThemeProfile } from "@/components/providers/theme-profile-provider"
+import { useLanguage } from "@/components/providers/language-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { StatusDot } from "@/components/status-dot"
 
 const NAV = [
-  { href: "/", label: "Home", icon: LayoutGridIcon },
-  { href: "/command", label: "Chat", icon: SendIcon },
-  { href: "/terminal", label: "Terminal", icon: TerminalSquareIcon },
-  { href: "/approvals", label: "Approvals", icon: ShieldCheckIcon },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
+  { href: "/", labelKey: "nav.home", icon: LayoutGridIcon },
+  { href: "/command", labelKey: "nav.chat", icon: SendIcon },
+  { href: "/terminal", labelKey: "nav.terminal", icon: TerminalSquareIcon },
+  { href: "/approvals", labelKey: "nav.approvals", icon: ShieldCheckIcon },
+  { href: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ]
 
 export function AppShell({
   title,
+  titleKey,
   action,
   children,
   padded = true,
 }: {
-  title: string
+  title?: string
+  titleKey?: string
   action?: React.ReactNode
   children: React.ReactNode
   padded?: boolean
@@ -33,8 +36,10 @@ export function AppShell({
   const pathname = usePathname()
   const { connectionState, status } = useBridge()
   const { profile, resolvedProfile, cycleProfile } = useThemeProfile()
+  const { t } = useLanguage()
   const pending = status?.pendingApprovals ?? 0
   const [keyboardOpen, setKeyboardOpen] = React.useState(false)
+  const renderedTitle = titleKey ? t(titleKey) : (title ?? "CLAW")
 
   React.useEffect(() => {
     const viewport = window.visualViewport
@@ -68,7 +73,7 @@ export function AppShell({
         <div className="flex h-14 items-center justify-between px-4">
           <div className="flex items-center gap-3">
             <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">CLAW</span>
-            <h1 className="text-base font-semibold">{title}</h1>
+            <h1 className="text-base font-semibold">{renderedTitle}</h1>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -115,7 +120,7 @@ export function AppShell({
                   )}
                 >
                   <Icon className="size-5" aria-hidden />
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
                 {item.href === "/approvals" && pending > 0 && (
                   <Badge className="absolute top-2 right-1/2 -mr-6 h-4 min-w-4 px-1 font-mono text-[10px]">
