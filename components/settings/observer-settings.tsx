@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 
 export function ObserverSettings() {
   const { language } = useLanguage()
-  const { status, available, busy, configure, refresh, analyzeNow } = useObserver()
+  const { status, available, busy, error, configure, refresh, analyzeNow } = useObserver()
   const et = language === "et"
   const [apiKey, setApiKey] = React.useState("")
   const [model, setModel] = React.useState("")
@@ -30,8 +30,23 @@ export function ObserverSettings() {
       await configure({ model, baseUrl, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) })
       setApiKey("")
       toast.success(et ? "Observeri seaded salvestatud" : "Observer settings saved")
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Observer setup failed")
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Observer setup failed")
+    }
+  }
+
+  async function doRefresh() {
+    const ok = await refresh()
+    if (ok) toast.success(et ? "Observeri ühendus töötab" : "Observer connection is healthy")
+    else toast.error(error || (et ? "Observeri teenus pole kättesaadav" : "Observer service is unavailable"))
+  }
+
+  async function doAnalyze() {
+    try {
+      await analyzeNow()
+      toast.success(et ? "Observeri analüüs valmis" : "Observer analysis complete")
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Observer analysis failed")
     }
   }
 
@@ -45,8 +60,9 @@ export function ObserverSettings() {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {!available && (
-          <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-            {et ? "Observeri teenus pole veel käivitatud. Pärast gateway koodi uuendamist tee Termuxis claw restart --gateway-only." : "Observer service is not running yet. After updating the gateway code, run claw restart --gateway-only in Termux."}
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-muted-foreground">
+            <div className="font-medium text-foreground">{et ? "Observer pole ühendatud" : "Observer is not connected"}</div>
+            <div className="mt-1">{error || (et ? "Pärast gateway koodi uuendamist tee Termuxis: claw restart --gateway-only" : "After updating the gateway code, run in Termux: claw restart --gateway-only")}</div>
           </div>
         )}
 
@@ -69,7 +85,7 @@ export function ObserverSettings() {
             <Select value={status?.provider ?? "anthropic"} onValueChange={(value) => value && void configure({ provider: value as ObserverProviderKind })} disabled={!available || busy}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent><SelectGroup>
-                <SelectItem value="anthropic">Anthropic / Claude API</SelectItem>
+                <SelectItem value="anthropic">MWAPI / Anthropic-compatible</SelectItem>
                 <SelectItem value="openai-compatible">OpenAI-compatible API</SelectItem>
               </SelectGroup></SelectContent>
             </Select>
@@ -94,8 +110,8 @@ export function ObserverSettings() {
 
         <div className="grid grid-cols-2 gap-2">
           <Button onClick={() => void save()} disabled={!available || busy || !model.trim() || !baseUrl.trim()}>{et ? "Salvesta" : "Save"}</Button>
-          <Button variant="outline" onClick={() => void refresh()} disabled={busy}><RefreshCwIcon />{et ? "Värskenda" : "Refresh"}</Button>
-          <Button variant="outline" onClick={() => void analyzeNow()} disabled={!available || busy || !status?.configured || status?.mode === "off"}>{et ? "Analüüsi kohe" : "Analyze now"}</Button>
+          <Button variant="outline" onClick={() => void doRefresh()} disabled={busy}><RefreshCwIcon />{et ? "Värskenda" : "Refresh"}</Button>
+          <Button variant="outline" onClick={() => void doAnalyze()} disabled={!available || busy || !status?.configured || status?.mode === "off"}>{et ? "Analüüsi kohe" : "Analyze now"}</Button>
           <Button variant="outline" onClick={() => void configure({ clearApiKey: true, mode: "off" })} disabled={!available || busy || !status?.configured}><Trash2Icon />{et ? "Eemalda võti" : "Remove key"}</Button>
         </div>
 
