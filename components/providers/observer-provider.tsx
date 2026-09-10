@@ -56,7 +56,8 @@ type ObserverContextValue = {
   status: ObserverStatus | null
   available: boolean
   busy: boolean
-  refresh: () => Promise<void>
+  error: string | null
+  refresh: () => Promise<boolean>
   configure: (patch: ObserverConfigPatch) => Promise<void>
   record: (event: ObserverEvent) => Promise<void>
   analyzeNow: () => Promise<void>
@@ -80,6 +81,7 @@ export function ObserverProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = React.useState<ObserverStatus | null>(null)
   const [available, setAvailable] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
   const dismissedAdviceRef = React.useRef<string | null>(null)
 
   const request = React.useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -100,14 +102,20 @@ export function ObserverProvider({ children }: { children: React.ReactNode }) {
   const refresh = React.useCallback(async () => {
     if (!connection?.token || connectionState !== "online") {
       setAvailable(false)
-      return
+      setError(connectionState !== "online" ? "Gateway is not online" : "CLAW gateway is not paired")
+      return false
     }
     try {
       const next = await request<ObserverStatus>("/status")
       setStatus(next)
       setAvailable(true)
-    } catch {
+      setError(null)
+      return true
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Observer service is unreachable"
       setAvailable(false)
+      setError(message)
+      return false
     }
   }, [connection?.token, connectionState, request])
 
@@ -122,8 +130,11 @@ export function ObserverProvider({ children }: { children: React.ReactNode }) {
         dismissedAdviceRef.current = null
         setStatus((current) => current ? { ...current, lastAdvice: result.advice ?? null } : current)
       }
-    } catch {
+      setAvailable(true)
+      setError(null)
+    } catch (cause) {
       setAvailable(false)
+      setError(cause instanceof Error ? cause.message : "Observer service is unreachable")
     }
   }, [connection?.token, connectionState, language, request, status?.mode])
 
@@ -131,7 +142,13 @@ export function ObserverProvider({ children }: { children: React.ReactNode }) {
     setBusy(true)
     try {
       await request("/config", { method: "POST", body: JSON.stringify(patch) })
+      setError(null)
       await refresh()
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Observer configuration failed"
+      setError(message)
+      setAvailable(false)
+      throw cause
     } finally {
       setBusy(false)
     }
@@ -146,6 +163,10 @@ export function ObserverProvider({ children }: { children: React.ReactNode }) {
       })
       dismissedAdviceRef.current = null
       setStatus((current) => current ? { ...current, lastAdvice: result.advice ?? null } : current)
+      setError(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Observer analysis failed")
+      throw cause
     } finally {
       setBusy(false)
     }
@@ -189,12 +210,13 @@ export function ObserverProvider({ children }: { children: React.ReactNode }) {
     status,
     available,
     busy,
+    error,
     refresh,
     configure,
     record,
     analyzeNow,
     dismissAdvice,
-  }), [status, available, busy, refresh, configure, record, analyzeNow, dismissAdvice])
+  }), [status, available, busy, error, refresh, configure, record, analyzeNow, dismissAdvice])
 
   return <ObserverContext.Provider value={value}>{children}</ObserverContext.Provider>
 }
