@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useBridge } from "@/components/providers/bridge-provider"
 import { useLanguage } from "@/components/providers/language-provider"
+import { useObserver } from "@/components/providers/observer-provider"
 import { ObserverTerminalConnection, type ObserverTerminalEvent, type ObserverTerminalSession } from "@/lib/terminal/observer-terminal"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
@@ -23,9 +24,14 @@ function ctrlCode(value: string) {
   return "\u0003"
 }
 
+function isMeaningfulTerminalEvent(text: string) {
+  return /\b(error|failed|failure|not found|denied|expired|evaluated|challenge loaded|verification|passed|score)\b|press\s+<enter>|submit this response|expires:/i.test(text)
+}
+
 export function TerminalScreen() {
   const { connection, connectionState } = useBridge()
   const { language } = useLanguage()
+  const { record } = useObserver()
   const et = language === "et"
   const [terminal, setTerminal] = React.useState<ObserverTerminalConnection | null>(null)
   const [sessions, setSessions] = React.useState<ObserverTerminalSession[]>([])
@@ -59,7 +65,17 @@ export function TerminalScreen() {
         const sid = event.sessionId
         const text = event.text
         if (!text) return
-        setBuffers((prev) => ({ ...prev, [sid]: `${prev[sid] || ""}${cleanAnsi(text)}`.slice(-120000) }))
+        const cleaned = cleanAnsi(text)
+        setBuffers((prev) => ({ ...prev, [sid]: `${prev[sid] || ""}${cleaned}`.slice(-120000) }))
+        if (event.type === "error" || isMeaningfulTerminalEvent(cleaned)) {
+          void record({
+            kind: event.type === "error" || /\b(error|failed|failure|denied|expired)\b/i.test(cleaned) ? "error" : "status",
+            severity: event.type === "error" || /\b(error|failed|failure|denied|expired)\b/i.test(cleaned) ? "error" : "info",
+            screen: "/terminal",
+            label: "Meaningful terminal event",
+            detail: cleaned.slice(-1400),
+          })
+        }
       } else if (event.type === "closed" && event.sessionId) {
         setSessions((prev) => prev.filter((item) => item.id !== event.sessionId))
         setActive((current) => current === event.sessionId ? null : current)
@@ -70,13 +86,15 @@ export function TerminalScreen() {
       next.list()
     }).catch((error) => {
       setConnected(false)
-      toast.error(error instanceof Error ? error.message : "Terminal connection failed")
+      const message = error instanceof Error ? error.message : "Terminal connection failed"
+      toast.error(message)
+      void record({ kind: "error", severity: "error", screen: "/terminal", label: "Interactive terminal connection failed", detail: message })
     })
     return () => {
       unsubscribe()
       next.close()
     }
-  }, [connection?.token, connectionState])
+  }, [connection?.token, connectionState, record])
 
   React.useEffect(() => {
     outRef.current?.scrollTo({ top: outRef.current.scrollHeight })
