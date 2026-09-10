@@ -7,8 +7,11 @@ export type ObserverTerminalSession = {
 }
 
 export type ObserverTerminalEvent = {
-  type: "ready" | "output" | "error" | "closed" | "session"
+  type: "ready" | "output" | "error" | "closed" | "session" | "sessions"
   session?: ObserverTerminalSession
+  sessions?: ObserverTerminalSession[]
+  sessionId?: string
+  kind?: "output" | "error" | "system"
   text?: string
 }
 
@@ -32,9 +35,6 @@ export class ObserverTerminalConnection {
         if (data.type === "ready") {
           window.clearTimeout(timer)
           resolve()
-        }
-        if (data.type === "error" && !data.session) {
-          window.clearTimeout(timer)
         }
         this.listeners.forEach((listener) => listener(data))
       })
