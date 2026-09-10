@@ -47,14 +47,17 @@ export function TerminalScreen() {
     }
     const next = new ObserverTerminalConnection(connection.token)
     setTerminal(next)
-    const unsubscribe = next.subscribe((event: ObserverTerminalEvent & { sessions?: ObserverTerminalSession[]; sessionId?: string }) => {
-      if (event.type === "session" && event.session) {
+    const unsubscribe = next.subscribe((event: ObserverTerminalEvent) => {
+      if (event.type === "sessions" && event.sessions) {
+        setSessions(event.sessions)
+        setActive((current) => current ?? event.sessions?.[0]?.id ?? null)
+      } else if (event.type === "session" && event.session) {
         setSessions((prev) => [...prev.filter((item) => item.id !== event.session!.id), event.session!])
         setActive(event.session.id)
-      } else if (event.type === "output" || event.type === "error") {
-        const sid = activeRef.current
-        if (!sid || !event.text) return
-        setBuffers((prev) => ({ ...prev, [sid]: `${prev[sid] || ""}${cleanAnsi(event.text || "")}`.slice(-120000) }))
+      } else if ((event.type === "output" || event.type === "error") && event.sessionId) {
+        const sid = event.sessionId
+        if (!event.text) return
+        setBuffers((prev) => ({ ...prev, [sid]: `${prev[sid] || ""}${cleanAnsi(event.text)}`.slice(-120000) }))
       } else if (event.type === "closed" && event.sessionId) {
         setSessions((prev) => prev.filter((item) => item.id !== event.sessionId))
         setActive((current) => current === event.sessionId ? null : current)
@@ -73,9 +76,6 @@ export function TerminalScreen() {
       next.close()
     }
   }, [connection?.token, connectionState])
-
-  const activeRef = React.useRef<string | null>(null)
-  React.useEffect(() => { activeRef.current = active }, [active])
 
   React.useEffect(() => {
     outRef.current?.scrollTo({ top: outRef.current.scrollHeight })
@@ -97,7 +97,6 @@ export function TerminalScreen() {
     else payload = `${input}\r`
     if (input.trim()) {
       setHistory((prev) => [input, ...prev.filter((item) => item !== input)].slice(0, 50))
-      setBuffers((prev) => ({ ...prev, [active || ""]: `${prev[active || ""] || ""}$ ${input}\n` }))
     }
     sendRaw(payload)
     setInput("")
@@ -107,9 +106,8 @@ export function TerminalScreen() {
     inputRef.current?.focus()
   }
 
-  async function newSession() {
-    if (!terminal) return
-    terminal.create()
+  function newSession() {
+    terminal?.create()
   }
 
   function closeSession(id: string) {
@@ -120,6 +118,7 @@ export function TerminalScreen() {
     if (!terminal) return
     terminal.connect().then(() => {
       setConnected(true)
+      terminal.list()
       toast.success(et ? "Interaktiivne terminal ühendatud" : "Interactive terminal connected")
     }).catch((error) => toast.error(error instanceof Error ? error.message : "Reconnect failed"))
   }
@@ -153,7 +152,7 @@ export function TerminalScreen() {
             <button aria-label={`Close ${item.name}`} onClick={() => closeSession(item.id)} className="pr-2 pl-1"><XIcon className="size-3" /></button>
           </div>
         ))}
-        <Button variant="ghost" size="icon-sm" onClick={() => void newSession()} disabled={!connected}><PlusIcon /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={newSession} disabled={!connected}><PlusIcon /></Button>
       </div>
 
       <div ref={outRef} role="log" className="h-[48dvh] overflow-y-auto rounded-xl border border-border bg-card p-3 font-mono text-xs leading-relaxed">
