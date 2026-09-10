@@ -164,6 +164,7 @@
 
 .claw-shell {
   --claw-red: #ef3d45;
+  --claw-glow-rgb: 239 61 69;
 }
 
 .claw-orbit {
@@ -178,12 +179,12 @@
   border: 2px solid color-mix(in srgb, var(--claw-red) 88%, transparent);
   opacity: .82;
   background:
-    radial-gradient(circle at 32% 68%, rgb(239 61 69 / 18%) 0 1px, transparent 2px) 0 0 / 18px 18px,
-    radial-gradient(circle at 50% 50%, rgb(239 61 69 / 14%), transparent 58%);
+    radial-gradient(circle at 32% 68%, rgb(var(--claw-glow-rgb) / 18%) 0 1px, transparent 2px) 0 0 / 18px 18px,
+    radial-gradient(circle at 50% 50%, rgb(var(--claw-glow-rgb) / 14%), transparent 58%);
   box-shadow:
-    0 0 16px rgb(239 61 69 / 58%),
-    0 0 42px rgb(239 61 69 / 30%),
-    inset 0 0 54px rgb(239 61 69 / 14%);
+    0 0 16px rgb(var(--claw-glow-rgb) / 58%),
+    0 0 42px rgb(var(--claw-glow-rgb) / 30%),
+    inset 0 0 54px rgb(var(--claw-glow-rgb) / 14%);
   filter: saturate(1.15);
 }
 
@@ -250,4 +251,142 @@
   .claw-launch__cursor { animation: none; }
   .claw-launch__bridge { animation: none; stroke-dashoffset: 0; }
   .claw-launch__prompt { animation: none; opacity: 1; }
+}
+
+/* CLAW display profiles. These override the base shadcn tokens without changing component code. */
+:root[data-claw-theme="claw-red"] {
+  color-scheme: dark;
+  --background: #090b0d;
+  --foreground: #f5f7f9;
+  --card: #111418;
+  --card-foreground: #f5f7f9;
+  --popover: #111418;
+  --popover-foreground: #f5f7f9;
+  --primary: #ef3d45;
+  --primary-foreground: #ffffff;
+  --secondary: #1b2026;
+  --secondary-foreground: #f5f7f9;
+  --muted: #171b20;
+  --muted-foreground: #9ca6b2;
+  --accent: #242a31;
+  --accent-foreground: #ffffff;
+  --border: rgb(255 255 255 / 11%);
+  --input: rgb(255 255 255 / 15%);
+  --ring: #ef3d45;
+}
+
+:root[data-claw-theme="night-ops"] {
+  color-scheme: dark;
+  --background: #030605;
+  --foreground: #b8ffc4;
+  --card: #07100b;
+  --card-foreground: #c8ffd1;
+  --popover: #07100b;
+  --popover-foreground: #c8ffd1;
+  --primary: #39ff72;
+  --primary-foreground: #021006;
+  --secondary: #0b1a10;
+  --secondary-foreground: #aaf8b8;
+  --muted: #09140d;
+  --muted-foreground: #6faa7a;
+  --accent: #0f2415;
+  --accent-foreground: #c8ffd1;
+  --border: rgb(57 255 114 / 20%);
+  --input: rgb(57 255 114 / 18%);
+  --ring: #39ff72;
+}
+
+:root[data-claw-theme="night-ops"] .claw-shell {
+  --claw-red: #39ff72;
+  --claw-glow-rgb: 57 255 114;
+}
+
+:root[data-claw-theme="amber-terminal"] {
+  color-scheme: dark;
+  --background: #070604;
+  --foreground: #ffd889;
+  --card: #100d07;
+  --card-foreground: #ffe1a3;
+  --popover: #100d07;
+  --popover-foreground: #ffe1a3;
+  --primary: #ffb000;
+  --primary-foreground: #160d00;
+  --secondary: #1e1608;
+  --secondary-foreground: #ffd889;
+  --muted: #171106;
+  --muted-foreground: #a88648;
+  --accent: #2a1e08;
+  --accent-foreground: #ffe1a3;
+  --border: rgb(255 176 0 / 22%);
+  --input: rgb(255 176 0 / 18%);
+  --ring: #ffb000;
+}
+
+:root[data-claw-theme="amber-terminal"] .claw-shell {
+  --claw-red: #ffb000;
+  --claw-glow-rgb: 255 176 0;
+}
+
+:root[data-claw-theme="daylight"] {
+  color-scheme: light;
+  --background: #f7f7f2;
+  --foreground: #101113;
+  --card: #ffffff;
+  --card-foreground: #101113;
+  --popover: #ffffff;
+  --popover-foreground: #101113;
+  --primary: #0057ff;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eaed;
+  --secondary-foreground: #15171a;
+  --muted: #eceeea;
+  --muted-foreground: #4f5660;
+  --accent: #dde5ff;
+  --accent-foreground: #0a2d78;
+  --destructive: #c62828;
+  --border: #c8ccd2;
+  --input: #bfc4ca;
+  --ring: #0057ff;
+}
+
+:root[data-claw-theme="daylight"] .claw-shell {
+  --claw-red: #0057ff;
+  --claw-glow-rgb: 0 87 255;
+}
+
+:root[data-claw-theme="daylight"] .claw-orbit {
+  opacity: .16;
+  filter: none;
+  box-shadow: 0 0 10px rgb(0 87 255 / 22%);
+}
+
+:root[data-claw-theme="daylight"] header,
+:root[data-claw-theme="daylight"] nav {
+  backdrop-filter: none;
+}
+
+:root[data-claw-theme="oled-black"] {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #ededed;
+  --card: #050505;
+  --card-foreground: #ededed;
+  --popover: #050505;
+  --popover-foreground: #ededed;
+  --primary: #ef3d45;
+  --primary-foreground: #ffffff;
+  --secondary: #101010;
+  --secondary-foreground: #ededed;
+  --muted: #0b0b0b;
+  --muted-foreground: #929292;
+  --accent: #151515;
+  --accent-foreground: #ffffff;
+  --border: rgb(255 255 255 / 12%);
+  --input: rgb(255 255 255 / 14%);
+  --ring: #ef3d45;
+}
+
+:root[data-claw-theme="oled-black"] .claw-orbit {
+  opacity: .22;
+  box-shadow: 0 0 12px rgb(239 61 69 / 20%);
 }
