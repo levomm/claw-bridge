@@ -13,7 +13,7 @@ import { JobStore } from "./seekclaw/store.mjs"
 import { SeekClawService } from "./seekclaw/service.mjs"
 import { ContextStore } from "./context-store.mjs"
 
-const VERSION = "0.4.0"
+const VERSION = "0.4.6"
 const PORT = Number(process.env.CLAW_PORT || 8787)
 const HOST = process.env.CLAW_HOST || "127.0.0.1"
 const IPV4_PROXY_PORT = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
@@ -168,12 +168,17 @@ function riskOf(command) {
 }
 
 function buildCommand(input, target) {
-  if (target === "codex") return { command: "codex", args: ["exec", input], display: `codex exec ${JSON.stringify(input)}` }
-  if (target === "claude-code") return { command: "claude", args: ["-p", input], display: `claude -p ${JSON.stringify(input)}` }
+  if (target === "codex") return { command: "codex", args: ["exec", "-"], stdin: input, display: "codex exec <stdin>" }
+  if (target === "claude-code") return { command: "claude", args: ["-p"], stdin: input, display: "claude -p <stdin>" }
   if (target === "auto") {
-    return { command: "sh", args: ["-c", `if command -v codex >/dev/null; then codex exec "$1"; elif command -v claude >/dev/null; then claude -p "$1"; else printf '%s\\n' 'No Codex or Claude CLI installed'; exit 127; fi`, "claw-bridge", input], display: input }
+    return {
+      command: "sh",
+      args: ["-c", "if command -v codex >/dev/null; then codex exec -; elif command -v claude >/dev/null; then claude -p; else printf '%s\\n' 'No Codex or Claude CLI installed'; exit 127; fi"],
+      stdin: input,
+      display: "auto agent <stdin>",
+    }
   }
-  return { command: "sh", args: ["-c", input], display: input }
+  return { command: "sh", args: ["-c", input], stdin: null, display: input }
 }
 
 function parseGitStatus(output) {
@@ -335,12 +340,16 @@ async function startRun(ws, params) {
   const cwd = process.env.CLAW_PROJECT || homedir()
   let stdout = ""
   let stderr = ""
+  let spawnFailed = false
   const child = spawn(spec.command, spec.args, {
     cwd,
     env: agentTarget ? agentEnvironment() : process.env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [spec.stdin !== null ? "pipe" : "ignore", "pipe", "pipe"],
   })
   runs.set(channel, child)
+  child.on("spawn", () => {
+    if (spec.stdin !== null && child.stdin) child.stdin.end(spec.stdin)
+  })
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString()
     stdout = (stdout + text).slice(-64_000)
@@ -351,10 +360,14 @@ async function startRun(ws, params) {
     stderr = (stderr + text).slice(-64_000)
     emitRun(ws, channel, "stderr", text)
   })
-  child.on("error", (error) => emitRun(ws, channel, "error", error.message))
+  child.on("error", (error) => {
+    spawnFailed = true
+    stderr = (stderr + error.message).slice(-64_000)
+    emitRun(ws, channel, "error", error.message)
+  })
   child.on("close", async (code, signal) => {
     runs.delete(channel)
-    const ok = !signal && code === 0
+    const ok = !spawnFailed && !signal && code === 0
     try {
       const [gitStatus, commit] = await Promise.all([
         capture("git", ["-C", cwd, "status", "--porcelain"], 2000),
@@ -366,7 +379,7 @@ async function startRun(ws, params) {
         summary: outputTail(stdout, stderr, ok),
         changedFiles: parseGitStatus(gitStatus),
         tests: extractTestSignals(`${stdout}\n${stderr}`),
-        blockers: ok ? [] : [signal ? `Stopped by ${signal}` : `Exited with code ${code}`],
+        blockers: ok ? [] : [signal ? `Stopped by ${signal}` : spawnFailed ? "Executor failed to start" : `Exited with code ${code}`],
         commit,
         finishedAt: now(),
       }
@@ -377,7 +390,7 @@ async function startRun(ws, params) {
     }
     if (signal) emitRun(ws, channel, "stopped", `Stopped (${signal})`)
     else if (ok) emitRun(ws, channel, "done", "Completed successfully")
-    else emitRun(ws, channel, "error", `Exited with code ${code}`)
+    else if (!spawnFailed) emitRun(ws, channel, "error", `Exited with code ${code}`)
     await broadcastStatus()
   })
   void broadcastStatus()
@@ -399,9 +412,7 @@ function simpleCdTarget(input) {
   if (!match) return null
   let requested = match[1]?.trim() || homedir()
   if (/[;&|<>`$()\n]/.test(requested)) return null
-  if ((requested.startsWith('"') && requested.endsWith('"')) || (requested.startsWith("'") && requested.endsWith("'"))) {
-    requested = requested.slice(1, -1)
-  }
+  if ((requested.startsWith('"') && requested.endsWith('"')) || (requested.startsWith("'") && requested.endsWith("'"))) requested = requested.slice(1, -1)
   return requested
 }
 
@@ -446,11 +457,10 @@ async function resolveApproval(params) {
   const { approvalId, decision } = params || {}
   if (!["deny", "allow-once", "always-allow"].includes(decision)) throw new Error("Invalid approval decision")
   if (typeof approvalId === "string" && approvalId.startsWith("seekclaw_approval_")) {
-    const pending = (await seekclaw.listApprovals()).find(item => item.id === approvalId)
+    const pending = (await seekclaw.listApprovals()).find((item) => item.id === approvalId)
     if (!pending) throw new Error("Approval no longer pending")
     await seekclaw.resolveApproval(approvalId, decision)
-    audit = [{ id: id("audit"), approvalId, command: pending.command, agent: pending.agent,
-      project: pending.project, risk: pending.risk, decision, decidedAt: now() }, ...audit].slice(0, 1000)
+    audit = [{ id: id("audit"), approvalId, command: pending.command, agent: pending.agent, project: pending.project, risk: pending.risk, decision, decidedAt: now() }, ...audit].slice(0, 1000)
     await writeFile(AUDIT_FILE, JSON.stringify(audit, null, 2), { mode: 0o600 })
     await broadcastApprovals()
     await broadcastStatus()
@@ -462,10 +472,7 @@ async function resolveApproval(params) {
   const waiter = approvalWaiters.get(approvalId)
   approvalWaiters.delete(approvalId)
   if (decision === "always-allow" && waiter) allowedRules.add(waiter.rule)
-  const entry = {
-    id: id("audit"), approvalId, command: approval.command, agent: approval.agent,
-    project: approval.project, risk: approval.risk, decision, decidedAt: now(),
-  }
+  const entry = { id: id("audit"), approvalId, command: approval.command, agent: approval.agent, project: approval.project, risk: approval.risk, decision, decidedAt: now() }
   audit = [entry, ...audit].slice(0, 1000)
   await writeFile(AUDIT_FILE, JSON.stringify(audit, null, 2), { mode: 0o600 })
   waiter?.resolveDecision(decision !== "deny")
