@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { WifiOffIcon, RefreshCwIcon } from "lucide-react"
+import { WifiOffIcon, RefreshCwIcon, LinkIcon } from "lucide-react"
 import { useBridge } from "@/components/providers/bridge-provider"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -33,19 +33,25 @@ export function ConnectionGate({ children }: { children: React.ReactNode }) {
       {(connectionState === "offline" || connectionState === "error") && (
         <Alert variant={connectionState === "error" ? "destructive" : "default"}>
           <WifiOffIcon />
-          <AlertTitle>{connectionState === "error" ? "Gateway error" : "Gateway offline"}</AlertTitle>
-          <AlertDescription>{connectionError ?? "Live data is paused until the gateway is reachable."}</AlertDescription>
+          <AlertTitle>{connectionState === "error" ? "Gateway viga" : "Gateway pole ühendatud"}</AlertTitle>
+          <AlertDescription>{connectionError ?? "Reaalaja andmed on pausil, kuni gateway on jälle kättesaadav."}</AlertDescription>
           <AlertAction>
-            <Button size="sm" variant="outline" onClick={() => void reconnect()}>
-              <RefreshCwIcon data-icon="inline-start" />
-              Retry
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => void reconnect()}>
+                <RefreshCwIcon data-icon="inline-start" />
+                Proovi uuesti
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => router.push("/pair")}>
+                <LinkIcon data-icon="inline-start" />
+                Seo uuesti
+              </Button>
+            </div>
           </AlertAction>
         </Alert>
       )}
       {connectionState === "connecting" && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner /> Connecting to {connection.gatewayName}…
+          <Spinner /> Ühendan gatewayga {connection.gatewayName}…
         </div>
       )}
       {children}
