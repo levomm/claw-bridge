@@ -89,25 +89,19 @@ export class TerminalManager {
   emit(session, kind, text) {
     if (!text) return
     session.buffer = `${session.buffer}${text}`.slice(-MAX_BUFFER)
-    const line = { id: this.id("line"), kind, text }
-    for (const [channel, ws] of session.subscribers) {
-      this.send(ws, { type: "event", event: "terminal", channel, data: line })
+    for (const ws of session.subscribers.values()) {
+      this.send(ws, { type: kind === "error" ? "error" : "output", sessionId: session.id, kind, text })
     }
   }
 
-  attach(sessionId, ws, channel) {
+  attach(sessionId, ws, channel = sessionId) {
     const session = this.sessions.get(sessionId)
     if (!session) throw new Error("Terminal session not found")
-    if (!channel) throw new Error("Terminal channel required")
     session.subscribers.set(channel, ws)
     if (session.buffer) {
-      this.send(ws, { type: "event", event: "terminal", channel, data: { id: this.id("line"), kind: "output", text: session.buffer } })
+      this.send(ws, { type: "output", sessionId: session.id, kind: "output", text: session.buffer })
     }
     return publicSession(session)
-  }
-
-  detach(sessionId, channel) {
-    this.sessions.get(sessionId)?.subscribers.delete(channel)
   }
 
   detachSocket(ws) {
