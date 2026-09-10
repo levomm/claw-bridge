@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useBridge } from "@/components/providers/bridge-provider"
 import { useLanguage } from "@/components/providers/language-provider"
+import { useObserver } from "@/components/providers/observer-provider"
 import { TARGET_LABELS, type PermissionMode, type RunEvent, type RunHandle, type Target } from "@/lib/gateway"
 import type { ClawContextSnapshot } from "@/lib/context/types"
 import { Button } from "@/components/ui/button"
@@ -30,6 +31,7 @@ function compact(text: string, limit = 360) {
 export function CommandScreen() {
   const { client, settings, connectionState } = useBridge()
   const { t, language } = useLanguage()
+  const { record } = useObserver()
   const [input, setInput] = React.useState("")
   const [target, setTarget] = React.useState<Target>(settings.defaultTarget)
   const [mode, setMode] = React.useState<PermissionMode>(settings.defaultPermissionMode)
@@ -108,6 +110,7 @@ export function CommandScreen() {
     if (!request || running || offline) return
     setEvents([])
     setRunState("preparing")
+    void record({ kind: "action", screen: "/command", label: `Agent run started: ${target}`, detail: `permission=${mode}` })
     try {
       let handoffId: string | undefined
       if (target === "auto" || target === "codex" || target === "claude-code") {
@@ -126,12 +129,21 @@ export function CommandScreen() {
         setEvents((previous) => [...previous, event])
         if (event.type === "done" || event.type === "error" || event.type === "stopped") {
           setRunState(event.type)
+          void record({
+            kind: event.type === "done" ? "result" : "error",
+            severity: event.type === "done" ? "info" : "error",
+            screen: "/command",
+            label: `Agent run ${event.type}: ${target}`,
+            detail: event.text,
+          })
           void refreshCompletedContext()
         }
       })
     } catch (error) {
+      const message = error instanceof Error ? error.message : (language === "et" ? "Töö käivitamine ebaõnnestus" : "Could not start run")
       setRunState("error")
-      setEvents([{ id: crypto.randomUUID(), type: "error", text: error instanceof Error ? error.message : (language === "et" ? "Töö käivitamine ebaõnnestus" : "Could not start run"), ts: new Date().toISOString() }])
+      setEvents([{ id: crypto.randomUUID(), type: "error", text: message, ts: new Date().toISOString() }])
+      void record({ kind: "error", severity: "error", screen: "/command", label: `Agent run could not start: ${target}`, detail: message })
     }
   }
 
