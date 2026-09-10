@@ -128,6 +128,7 @@ export function CommandScreen() {
   const latest = context?.project.latestResult
   const task = context?.project.currentTask
   const runtime = context?.runtime
+  const latestWasReadOnly = Boolean(latest && /\bnothing (?:was )?modified\b/i.test(latest.summary))
 
   return (
     <div className="flex min-h-full flex-col gap-4">
@@ -167,7 +168,7 @@ export function CommandScreen() {
                 Latest from {latest.executor}{latest.commit ? ` · ${latest.commit}` : ""}
               </div>
               <p className="text-xs leading-relaxed">{compact(latest.summary)}</p>
-              {latest.changedFiles.length > 0 && <p className="mt-2 font-mono text-[10px] text-muted-foreground">{latest.changedFiles.length} changed files</p>}
+              {!latestWasReadOnly && latest.changedFiles.length > 0 && <p className="mt-2 font-mono text-[10px] text-muted-foreground">{latest.changedFiles.length} changed files</p>}
             </div>
           )}
         </CardContent>
