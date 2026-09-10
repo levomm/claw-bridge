@@ -11,7 +11,7 @@ import { StatusDot } from "@/components/status-dot"
 
 const NAV = [
   { href: "/", label: "Home", icon: LayoutGridIcon },
-  { href: "/command", label: "Command", icon: SendIcon },
+  { href: "/command", label: "Chat", icon: SendIcon },
   { href: "/terminal", label: "Terminal", icon: TerminalSquareIcon },
   { href: "/approvals", label: "Approvals", icon: ShieldCheckIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
@@ -31,9 +31,34 @@ export function AppShell({
   const pathname = usePathname()
   const { connectionState, status } = useBridge()
   const pending = status?.pendingApprovals ?? 0
+  const [keyboardOpen, setKeyboardOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+    let largestHeight = viewport.height
+    const update = () => {
+      largestHeight = Math.max(largestHeight, viewport.height)
+      const open = largestHeight - viewport.height > 96
+      document.documentElement.style.setProperty("--claw-visual-height", `${viewport.height}px`)
+      setKeyboardOpen(open)
+    }
+    update()
+    viewport.addEventListener("resize", update)
+    viewport.addEventListener("scroll", update)
+    return () => {
+      viewport.removeEventListener("resize", update)
+      viewport.removeEventListener("scroll", update)
+      document.documentElement.style.removeProperty("--claw-visual-height")
+    }
+  }, [])
 
   return (
-    <div className="claw-shell relative isolate flex min-h-dvh flex-col overflow-x-clip bg-background text-foreground">
+    <div
+      className="claw-shell relative isolate flex min-h-dvh flex-col overflow-x-clip bg-background text-foreground"
+      data-keyboard-open={keyboardOpen ? "true" : "false"}
+      style={{ minHeight: "var(--claw-visual-height, 100dvh)" }}
+    >
       <div className="claw-orbit" aria-hidden />
 
       <header className="sticky top-0 z-10 border-b border-border bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur">
@@ -51,14 +76,14 @@ export function AppShell({
 
       <main
         className={cn("relative z-[1] flex-1", padded && "px-4 py-4")}
-        style={{ paddingBottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
+        style={{ paddingBottom: keyboardOpen ? "0.75rem" : "calc(4.5rem + env(safe-area-inset-bottom))" }}
       >
         {children}
       </main>
 
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur"
+        className={cn("fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur", keyboardOpen && "hidden")}
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <ul className="grid h-16 grid-cols-5">
