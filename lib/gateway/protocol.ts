@@ -6,6 +6,12 @@ import type {
 } from "./types"
 
 export type GatewayMethod =
+  | "context.get"
+  | "context.project.update"
+  | "context.memory.add"
+  | "context.handoff.list"
+  | "context.handoff.get"
+  | "context.handoff.create"
   | "seekclaw.jobs.list"
   | "seekclaw.jobs.get"
   | "seekclaw.jobs.discover"
