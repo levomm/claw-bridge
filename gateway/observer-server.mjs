@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { WebSocketServer, WebSocket } from "ws"
+import { TerminalManager } from "./terminal-manager.mjs"
 
 const HOST = process.env.CLAW_OBSERVER_HOST || "127.0.0.1"
 const PORT = Number(process.env.CLAW_OBSERVER_PORT || 8790)
@@ -143,10 +145,22 @@ function analysesInLastHour() {
   return analyses.length
 }
 
+function repeatedActionDetected() {
+  const recent = events.slice(-8).filter((event) => event.kind === "action" || event.kind === "screen")
+  if (recent.length < 4) return false
+  const counts = new Map()
+  for (const event of recent) {
+    const key = `${event.kind}:${event.screen}:${event.label}`
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  return [...counts.values()].some((count) => count >= 3)
+}
+
 function shouldAnalyze(event) {
   if (config.mode === "off" || !config.apiKey || !config.model || analyzing) return false
   if (analysesInLastHour() >= config.maxAnalysesPerHour) return false
-  if (event.severity === "error" || event.kind === "error" || event.kind === "approval") return true
+  if (event.severity === "error" || event.kind === "error" || event.kind === "approval" || event.kind === "result") return true
+  if (repeatedActionDetected()) return true
   if (config.mode === "assist") return false
   return eventsSinceAnalysis >= config.batchSize
 }
@@ -160,11 +174,12 @@ function summarizeEvents(batch) {
 }
 
 const SYSTEM_PROMPT = `You are CLAW Observer, the supervisor inside CLAW Bridge on Android.
-You observe UI navigation, button actions, connection state and errors. You do not execute actions yourself.
-Your job is to detect when the user is stuck, when the next step is clear, when an error has a likely cause, or when a risky action deserves attention.
+You observe navigation, user actions, gateway state, approvals, executor results and errors.
+Do not merely narrate what happened. Intervene only when you can add value: identify a likely cause, detect a loop/stuck state, warn about a risky action, or give one concrete next step.
+If the user is proceeding normally, return an empty message. Never say generic things such as "wait for the result", "review the output", or "continue monitoring" unless a real dependency requires waiting.
+Prefer direct operational guidance. Mention the actual provider shown in activity/context when known. If the API endpoint is api.mwapi.dev, call the provider MWAPI, not Anthropic.
 Never request or reveal secrets. Never recommend bypassing CLAW Approval for external actions, job applications, remote server writes, Windows changes, final submissions or credit spending.
-Be concise. Do not comment on routine successful clicks unless there is a useful next step.
-Return JSON only in this shape:
+Return JSON only:
 {"level":"info|warning|action","title":"short title","message":"one or two concise sentences","nextAction":"optional concrete next step"}
 If there is nothing useful to say, return {"level":"info","title":"","message":"","nextAction":""}.`
 
@@ -201,10 +216,7 @@ async function callOpenAiCompatible(prompt) {
   const url = config.baseUrl.endsWith("/chat/completions") ? config.baseUrl : endpoint(config.baseUrl, "/chat/completions")
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${config.apiKey}`,
-    },
+    headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
     body: JSON.stringify({
       model: config.model,
       temperature: 0.2,
@@ -235,15 +247,7 @@ function parseAdvice(text, language) {
   const message = redact(parsed.message || "").slice(0, 1200)
   const nextAction = redact(parsed.nextAction || "").slice(0, 500)
   if (!message && !nextAction) return null
-  return {
-    id: `obs_advice_${randomUUID()}`,
-    ts: now(),
-    language,
-    level,
-    title: title || "CLAW Observer",
-    message,
-    nextAction,
-  }
+  return { id: `obs_advice_${randomUUID()}`, ts: now(), language, level, title: title || "CLAW Observer", message, nextAction }
 }
 
 async function analyze(force = false, language = "en") {
@@ -252,8 +256,9 @@ async function analyze(force = false, language = "en") {
   if (!force && analysesInLastHour() >= config.maxAnalysesPerHour) return lastAdvice
   analyzing = true
   try {
-    const batch = events.slice(-Math.max(8, config.batchSize * 2))
-    const prompt = `The user's app language is ${language === "et" ? "Estonian" : "English"}. Reply in that language inside the JSON values.\n\nRecent CLAW activity:\n${summarizeEvents(batch)}`
+    const batch = events.slice(-Math.max(10, config.batchSize * 2))
+    const providerLabel = config.baseUrl.includes("mwapi.dev") ? "MWAPI" : config.provider
+    const prompt = `App language: ${language === "et" ? "Estonian" : "English"}. Provider: ${providerLabel}. Model: ${config.model}. Reply in the app language inside JSON values.\n\nRecent CLAW activity:\n${summarizeEvents(batch)}`
     const raw = config.provider === "anthropic" ? await callAnthropic(prompt) : await callOpenAiCompatible(prompt)
     analyses.push(Date.now())
     eventsSinceAnalysis = 0
@@ -294,14 +299,14 @@ async function recordEvent(input) {
   return { event, analyzed: Boolean(advice), advice }
 }
 
+async function readToken() {
+  try { return (await readFile(TOKEN_FILE, "utf8")).trim() } catch { return "" }
+}
+
 async function authorized(request) {
-  try {
-    const token = (await readFile(TOKEN_FILE, "utf8")).trim()
-    const supplied = String(request.headers["x-claw-token"] || "").trim()
-    return Boolean(token && supplied && token === supplied)
-  } catch {
-    return false
-  }
+  const token = await readToken()
+  const supplied = String(request.headers["x-claw-token"] || "").trim()
+  return Boolean(token && supplied && token === supplied)
 }
 
 const server = createServer(async (request, response) => {
@@ -311,7 +316,7 @@ const server = createServer(async (request, response) => {
     return
   }
   if (request.url === "/health") {
-    sendJson(response, 200, { ok: true, service: "claw-observer", version: 1 })
+    sendJson(response, 200, { ok: true, service: "claw-observer", version: 2, interactiveTerminal: true })
     return
   }
   if (!(await authorized(request))) {
@@ -320,14 +325,7 @@ const server = createServer(async (request, response) => {
   }
   try {
     if (request.method === "GET" && request.url === "/status") {
-      sendJson(response, 200, {
-        ok: true,
-        ...publicConfig(),
-        analyzing,
-        eventCount: events.length,
-        analysesLastHour: analysesInLastHour(),
-        lastAdvice,
-      })
+      sendJson(response, 200, { ok: true, ...publicConfig(), analyzing, eventCount: events.length, analysesLastHour: analysesInLastHour(), lastAdvice })
       return
     }
     if (request.method === "POST" && request.url === "/config") {
@@ -352,6 +350,67 @@ const server = createServer(async (request, response) => {
   }
 })
 
+const terminal = new TerminalManager({
+  id: (prefix) => `${prefix}_${randomUUID()}`,
+  send: (ws, message) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message)) },
+  envFactory: () => process.env,
+  editorPath: process.env.EDITOR || "nano",
+})
+
+const terminalWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
+server.on("upgrade", (request, socket, head) => {
+  if (request.url !== "/terminal") {
+    socket.destroy()
+    return
+  }
+  terminalWss.handleUpgrade(request, socket, head, (ws) => terminalWss.emit("connection", ws, request))
+})
+
+terminalWss.on("connection", (ws) => {
+  let authenticated = false
+  const authTimer = setTimeout(() => ws.close(4001, "Authentication timeout"), 5000)
+  ws.on("message", async (raw) => {
+    let message
+    try { message = JSON.parse(raw.toString()) } catch { ws.close(4002, "Invalid JSON"); return }
+    if (!authenticated) {
+      const token = await readToken()
+      if (message.type !== "auth" || !token || message.token !== token) {
+        ws.send(JSON.stringify({ type: "error", text: "Unauthorized" }))
+        ws.close(4003, "Unauthorized")
+        return
+      }
+      clearTimeout(authTimer)
+      authenticated = true
+      ws.send(JSON.stringify({ type: "ready" }))
+      return
+    }
+    try {
+      if (message.type === "list") {
+        ws.send(JSON.stringify({ type: "sessions", sessions: terminal.list() }))
+      } else if (message.type === "create") {
+        const session = await terminal.create(message.name)
+        terminal.attach(session.id, ws, session.id)
+        ws.send(JSON.stringify({ type: "session", session }))
+      } else if (message.type === "attach") {
+        const session = terminal.attach(message.sessionId, ws, message.sessionId)
+        ws.send(JSON.stringify({ type: "session", session }))
+      } else if (message.type === "write") {
+        terminal.write(message.sessionId, message.data)
+      } else if (message.type === "close") {
+        terminal.close(message.sessionId)
+        ws.send(JSON.stringify({ type: "closed", sessionId: message.sessionId }))
+      }
+    } catch (error) {
+      ws.send(JSON.stringify({ type: "error", text: error instanceof Error ? error.message : "Terminal request failed" }))
+    }
+  })
+  ws.on("close", () => {
+    clearTimeout(authTimer)
+    terminal.detachSocket(ws)
+  })
+})
+
 server.listen(PORT, HOST, () => {
   console.log(`CLAW Observer listening on http://${HOST}:${PORT}`)
+  console.log(`Interactive terminal listening on ws://${HOST}:${PORT}/terminal`)
 })
