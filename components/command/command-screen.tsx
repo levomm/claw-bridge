@@ -66,7 +66,11 @@ export function CommandScreen() {
     outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight })
   }, [events])
 
-  React.useEffect(() => () => handleRef.current?.stop(), [])
+  async function refreshCompletedContext() {
+    await refreshContext()
+    window.setTimeout(() => void refreshContext(), 350)
+    window.setTimeout(() => void refreshContext(), 1200)
+  }
 
   async function savePlan() {
     const plan = input.trim()
@@ -107,7 +111,7 @@ export function CommandScreen() {
         setEvents((previous) => [...previous, event])
         if (event.type === "done" || event.type === "error" || event.type === "stopped") {
           setRunState(event.type)
-          window.setTimeout(() => void refreshContext(), 300)
+          void refreshCompletedContext()
         }
       })
     } catch (error) {
