@@ -17,6 +17,7 @@ import {
   SquareIcon,
 } from "lucide-react"
 import { useBridge } from "@/components/providers/bridge-provider"
+import { useLanguage } from "@/components/providers/language-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -52,15 +53,9 @@ function collectRun(client: ReturnType<typeof useBridge>["client"], input: strin
     let text = ""
     let handle!: RunHandle
     handle = client.runCommand(
-      {
-        input,
-        target,
-        permissionMode: ask ? "ask" : "project-default",
-      },
+      { input, target, permissionMode: ask ? "ask" : "project-default" },
       (event: RunEvent) => {
-        if (event.type === "stdout" || event.type === "stderr" || event.type === "status" || event.type === "tool") {
-          text += `${event.text}\n`
-        }
+        if (event.type === "stdout" || event.type === "stderr" || event.type === "status" || event.type === "tool") text += `${event.text}\n`
         if (event.type === "done") resolve({ text, handle })
         if (event.type === "error") reject(new Error(event.text || "SeekClaw command failed"))
         if (event.type === "stopped") reject(new Error(event.text || "SeekClaw command stopped"))
@@ -82,15 +77,7 @@ function parseSnapshot(profile: string, jobs: string): AgentSnapshot {
   const credits = firstNumber(profile, [/Credits?\s*[:=-]?\s*([\d,]+)/i, /Balance\s*[:=-]?\s*([\d,]+)/i])
   const reputation = firstNumber(profile, [/Reputation\s*[:=-]?\s*([\d.]+)/i, /Rep(?:utation)?\s*[:=-]?\s*([\d.]+)/i])
   const activeJobs = firstNumber(profile, [/Active Jobs?\s*[:=-]?\s*(\d+)/i, /In Progress\s*[:=-]?\s*(\d+)/i])
-  return {
-    availableJobs,
-    matchingJobs: null,
-    activeJobs,
-    credits,
-    reputation,
-    rawProfile: profile,
-    rawJobs: jobs,
-  }
+  return { availableJobs, matchingJobs: null, activeJobs, credits, reputation, rawProfile: profile, rawJobs: jobs }
 }
 
 function Metric({ label, value }: { label: string; value: number | null }) {
@@ -102,15 +89,15 @@ function Metric({ label, value }: { label: string; value: number | null }) {
   )
 }
 
-function PipelineStep({ icon: Icon, label, state, protectedStep = false }: { icon: typeof SearchIcon; label: string; state: StepState; protectedStep?: boolean }) {
+function PipelineStep({ icon: Icon, label, state, protectedStep = false, automatic, approval }: { icon: typeof SearchIcon; label: string; state: StepState; protectedStep?: boolean; automatic: string; approval: string }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3">
-      <div className={cn("grid size-9 place-items-center rounded-lg border border-border bg-muted/30", state === "done" && "text-emerald-500")}> 
+      <div className={cn("grid size-9 place-items-center rounded-lg border border-border bg-muted/30", state === "done" && "text-emerald-500")}>
         {state === "running" ? <RefreshCwIcon className="size-4 animate-spin" /> : state === "done" ? <CheckCircle2Icon className="size-4" /> : <Icon className="size-4" />}
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{label}</p>
-        <p className="text-xs text-muted-foreground">{protectedStep ? "Requires your approval" : "Automatic"}</p>
+        <p className="text-xs text-muted-foreground">{protectedStep ? approval : automatic}</p>
       </div>
       {protectedStep ? <ShieldCheckIcon className="size-4 text-primary" /> : <Badge variant="secondary">AUTO</Badge>}
     </div>
@@ -119,17 +106,20 @@ function PipelineStep({ icon: Icon, label, state, protectedStep = false }: { ico
 
 export function SeekClawDashboard() {
   const { client, connectionState } = useBridge()
+  const { t } = useLanguage()
   const [snapshot, setSnapshot] = React.useState(INITIAL_SNAPSHOT)
   const [selectedJob, setSelectedJob] = React.useState("")
-  const [log, setLog] = React.useState("Connect SeekClaw CLI in the local runtime, then refresh.")
+  const [log, setLog] = React.useState("")
   const [busy, setBusy] = React.useState<string | null>(null)
   const [steps, setSteps] = React.useState<Record<string, StepState>>({})
+
+  React.useEffect(() => { if (!log) setLog(t("seek.connectCli")) }, [log, t])
 
   const setStep = (name: string, state: StepState) => setSteps((prev) => ({ ...prev, [name]: state }))
 
   const refresh = React.useCallback(async () => {
     setBusy("refresh")
-    setLog("Reading SeekClaw profile and open jobs…")
+    setLog(t("seek.reading"))
     try {
       const profile = await collectRun(client, "if command -v seekclaw >/dev/null; then seekclaw profile; else npx -y @seekclaw/cli profile; fi")
       const jobs = await collectRun(client, "if command -v seekclaw >/dev/null; then seekclaw jobs; else npx -y @seekclaw/cli jobs; fi")
@@ -137,10 +127,8 @@ export function SeekClawDashboard() {
       setLog(`${profile.text}\n${jobs.text}`.trim())
     } catch (error) {
       setLog(error instanceof Error ? error.message : "Could not read SeekClaw status")
-    } finally {
-      setBusy(null)
-    }
-  }, [client])
+    } finally { setBusy(null) }
+  }, [client, t])
 
   const findAndScore = async () => {
     setBusy("find")
@@ -159,27 +147,23 @@ export function SeekClawDashboard() {
     } catch (error) {
       setStep("find", "error")
       setStep("score", "error")
-      setLog(error instanceof Error ? error.message : "Find work failed")
-    } finally {
-      setBusy(null)
-    }
+      setLog(error instanceof Error ? error.message : t("seek.findFailed"))
+    } finally { setBusy(null) }
   }
 
   const apply = async () => {
     if (!selectedJob.trim()) return
     setBusy("apply")
     setStep("apply", "running")
-    setLog("Application is waiting for CLAW Approval before SeekClaw receives it.")
+    setLog(t("seek.applicationWaiting"))
     try {
       const result = await collectRun(client, `if command -v seekclaw >/dev/null; then seekclaw jobs --apply ${JSON.stringify(selectedJob.trim())}; else npx -y @seekclaw/cli jobs --apply ${JSON.stringify(selectedJob.trim())}; fi`, "termux", true)
       setStep("apply", "done")
-      setLog(result.text.trim() || "Application command completed.")
+      setLog(result.text.trim() || t("seek.applicationDone"))
     } catch (error) {
       setStep("apply", "error")
-      setLog(error instanceof Error ? error.message : "Application failed")
-    } finally {
-      setBusy(null)
-    }
+      setLog(error instanceof Error ? error.message : t("seek.applicationFailed"))
+    } finally { setBusy(null) }
   }
 
   const work = async () => {
@@ -194,10 +178,8 @@ export function SeekClawDashboard() {
       setLog(result.text.trim())
     } catch (error) {
       setStep("work", "error")
-      setLog(error instanceof Error ? error.message : "Local work failed")
-    } finally {
-      setBusy(null)
-    }
+      setLog(error instanceof Error ? error.message : t("seek.workFailed"))
+    } finally { setBusy(null) }
   }
 
   const test = async () => {
@@ -210,10 +192,8 @@ export function SeekClawDashboard() {
       setLog(result.text.trim())
     } catch (error) {
       setStep("test", "error")
-      setLog(error instanceof Error ? error.message : "Tests failed")
-    } finally {
-      setBusy(null)
-    }
+      setLog(error instanceof Error ? error.message : t("seek.testsFailed"))
+    } finally { setBusy(null) }
   }
 
   const prepareSubmission = async () => {
@@ -223,16 +203,16 @@ export function SeekClawDashboard() {
       const prompt = `Prepare the final delivery package and submission text for SeekClaw job ${selectedJob}. Verify the local deliverable, summarize what was done, list tests run and produce concise final submission text. Do not send or submit anything. The actual external submission must remain behind CLAW Approval.`
       const result = await collectRun(client, prompt, "auto")
       setStep("submit", "done")
-      setLog(`${result.text.trim()}\n\nSubmission is staged locally. SeekClaw's currently documented API does not expose a final job-delivery endpoint, so CLAW will not fake one.`)
+      setLog(`${result.text.trim()}\n\n${t("seek.stagedNotice")}`)
     } catch (error) {
       setStep("submit", "error")
-      setLog(error instanceof Error ? error.message : "Could not prepare submission")
-    } finally {
-      setBusy(null)
-    }
+      setLog(error instanceof Error ? error.message : t("seek.stageFailed"))
+    } finally { setBusy(null) }
   }
 
   const online = connectionState === "online"
+  const automatic = t("common.automatic")
+  const approval = t("common.requiresApproval")
 
   return (
     <div className="flex flex-col gap-4">
@@ -240,92 +220,65 @@ export function SeekClawDashboard() {
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <CardDescription>Agent marketplace</CardDescription>
-              <CardTitle className="mt-1 flex items-center gap-2 text-xl">
-                <BotIcon className="size-5 text-primary" /> SeekClaw Agent
-              </CardTitle>
+              <CardDescription>{t("seek.marketplace")}</CardDescription>
+              <CardTitle className="mt-1 flex items-center gap-2 text-xl"><BotIcon className="size-5 text-primary" /> {t("seek.agent")}</CardTitle>
             </div>
             <Badge className={cn("gap-1.5", online ? "" : "opacity-60")} variant={online ? "default" : "secondary"}>
               <span className={cn("size-2 rounded-full", online ? "bg-emerald-400" : "bg-muted-foreground")} />
-              {online ? "Agent Online" : "Bridge Offline"}
+              {online ? t("seek.agentOnline") : t("seek.bridgeOffline")}
             </Badge>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <Metric label="Available" value={snapshot.availableJobs} />
-            <Metric label="Matching" value={snapshot.matchingJobs} />
-            <Metric label="Active" value={snapshot.activeJobs} />
-            <Metric label="Credits" value={snapshot.credits} />
-            <Metric label="Reputation" value={snapshot.reputation} />
+            <Metric label={t("seek.available")} value={snapshot.availableJobs} />
+            <Metric label={t("seek.matching")} value={snapshot.matchingJobs} />
+            <Metric label={t("seek.active")} value={snapshot.activeJobs} />
+            <Metric label={t("seek.credits")} value={snapshot.credits} />
+            <Metric label={t("seek.reputation")} value={snapshot.reputation} />
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <Button onClick={() => void findAndScore()} disabled={!online || busy !== null}>
-              <SearchIcon data-icon="inline-start" /> Find Work
-            </Button>
-            <Button variant="outline" onClick={() => void refresh()} disabled={!online || busy !== null}>
-              <ActivityIcon data-icon="inline-start" /> Active Jobs
-            </Button>
-            <Button variant="outline" onClick={() => void refresh()} disabled={!online || busy !== null}>
-              <BadgeDollarSignIcon data-icon="inline-start" /> Earnings
-            </Button>
+            <Button onClick={() => void findAndScore()} disabled={!online || busy !== null}><SearchIcon data-icon="inline-start" /> {t("seek.findWork")}</Button>
+            <Button variant="outline" onClick={() => void refresh()} disabled={!online || busy !== null}><ActivityIcon data-icon="inline-start" /> {t("seek.activeJobs")}</Button>
+            <Button variant="outline" onClick={() => void refresh()} disabled={!online || busy !== null}><BadgeDollarSignIcon data-icon="inline-start" /> {t("seek.earnings")}</Button>
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Autonomous pipeline</CardTitle>
-          <CardDescription>Local work runs automatically. External or costly actions stop at CLAW Approval.</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-base">{t("seek.pipeline")}</CardTitle><CardDescription>{t("seek.pipelineHint")}</CardDescription></CardHeader>
         <CardContent className="grid gap-2">
-          <PipelineStep icon={SearchIcon} label="Find suitable work" state={steps.find ?? "idle"} />
-          <PipelineStep icon={SparklesIcon} label="Evaluate capability and fit" state={steps.score ?? "idle"} />
-          <PipelineStep icon={BriefcaseBusinessIcon} label="Apply for the job" state={steps.apply ?? "idle"} protectedStep />
-          <PipelineStep icon={BotIcon} label="Codex / Claude builds locally" state={steps.work ?? "idle"} />
-          <PipelineStep icon={FlaskConicalIcon} label="Run local tests" state={steps.test ?? "idle"} />
-          <PipelineStep icon={ShieldCheckIcon} label="Remote Windows / server writes" state="idle" protectedStep />
-          <PipelineStep icon={SendIcon} label="Submit final result" state={steps.submit ?? "idle"} protectedStep />
-          <PipelineStep icon={BadgeDollarSignIcon} label="Credit spending" state="idle" protectedStep />
+          <PipelineStep icon={SearchIcon} label={t("seek.findSuitable")} state={steps.find ?? "idle"} automatic={automatic} approval={approval} />
+          <PipelineStep icon={SparklesIcon} label={t("seek.evaluate")} state={steps.score ?? "idle"} automatic={automatic} approval={approval} />
+          <PipelineStep icon={BriefcaseBusinessIcon} label={t("seek.apply")} state={steps.apply ?? "idle"} protectedStep automatic={automatic} approval={approval} />
+          <PipelineStep icon={BotIcon} label={t("seek.build")} state={steps.work ?? "idle"} automatic={automatic} approval={approval} />
+          <PipelineStep icon={FlaskConicalIcon} label={t("seek.tests")} state={steps.test ?? "idle"} automatic={automatic} approval={approval} />
+          <PipelineStep icon={ShieldCheckIcon} label={t("seek.remote")} state="idle" protectedStep automatic={automatic} approval={approval} />
+          <PipelineStep icon={SendIcon} label={t("seek.submit")} state={steps.submit ?? "idle"} protectedStep automatic={automatic} approval={approval} />
+          <PipelineStep icon={BadgeDollarSignIcon} label={t("seek.creditSpending")} state="idle" protectedStep automatic={automatic} approval={approval} />
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Selected job</CardTitle>
-          <CardDescription>Paste a SeekClaw job ID. CLAW keeps apply and external actions behind approval.</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-base">{t("seek.selectedJob")}</CardTitle><CardDescription>{t("seek.selectedHint")}</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <Input value={selectedJob} onChange={(event) => setSelectedJob(event.target.value)} placeholder="SeekClaw job ID" autoCapitalize="off" autoCorrect="off" />
+          <Input value={selectedJob} onChange={(event) => setSelectedJob(event.target.value)} placeholder={t("seek.jobId")} autoCapitalize="off" autoCorrect="off" />
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={() => void apply()} disabled={!selectedJob.trim() || busy !== null}>
-              <ShieldCheckIcon data-icon="inline-start" /> Apply with approval
-            </Button>
-            <Button onClick={() => void work()} disabled={!selectedJob.trim() || busy !== null}>
-              <PlayIcon data-icon="inline-start" /> Work locally
-            </Button>
-            <Button variant="outline" onClick={() => void test()} disabled={busy !== null}>
-              <FlaskConicalIcon data-icon="inline-start" /> Test
-            </Button>
-            <Button variant="outline" onClick={() => void prepareSubmission()} disabled={!selectedJob.trim() || busy !== null}>
-              <SendIcon data-icon="inline-start" /> Stage result
-            </Button>
+            <Button variant="outline" onClick={() => void apply()} disabled={!selectedJob.trim() || busy !== null}><ShieldCheckIcon data-icon="inline-start" /> {t("seek.applyApproval")}</Button>
+            <Button onClick={() => void work()} disabled={!selectedJob.trim() || busy !== null}><PlayIcon data-icon="inline-start" /> {t("seek.workLocally")}</Button>
+            <Button variant="outline" onClick={() => void test()} disabled={busy !== null}><FlaskConicalIcon data-icon="inline-start" /> {t("seek.test")}</Button>
+            <Button variant="outline" onClick={() => void prepareSubmission()} disabled={!selectedJob.trim() || busy !== null}><SendIcon data-icon="inline-start" /> {t("seek.stage")}</Button>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Agent output</CardTitle>
-            <CardDescription>Latest SeekClaw / Codex activity</CardDescription>
-          </div>
+          <div><CardTitle className="text-base">{t("seek.output")}</CardTitle><CardDescription>{t("seek.outputHint")}</CardDescription></div>
           {busy ? <RefreshCwIcon className="size-4 animate-spin text-muted-foreground" /> : <SquareIcon className="size-4 text-muted-foreground" />}
         </CardHeader>
         <Separator />
-        <CardContent className="pt-4">
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-black/90 p-3 font-mono text-xs leading-5 text-zinc-200">{log}</pre>
-        </CardContent>
+        <CardContent className="pt-4"><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-black/90 p-3 font-mono text-xs leading-5 text-zinc-200">{log || t("seek.connectCli")}</pre></CardContent>
       </Card>
     </div>
   )
