@@ -7,6 +7,16 @@ const VERSION = 1
 const MAX_HANDOFFS = 60
 const MAX_NOTES = 120
 const MAX_TEXT = 12_000
+const DEFAULT_CONSTRAINTS = [
+  "Protected external actions require explicit CLAW approval.",
+  "Shared context belongs to CLAW Bridge, not to a model provider.",
+  "AUTO actions: discover/search SeekClaw jobs, evaluate capability and fit, work only in the active local project workspace, and run local tests/build/lint.",
+  "APPROVAL required before applying to a job.",
+  "APPROVAL required before writing to or changing a remote server.",
+  "APPROVAL required before modifying or controlling Windows.",
+  "APPROVAL required before submitting a final result to an external service.",
+  "APPROVAL required before spending CLAW Credits or other paid resources.",
+]
 
 const now = () => new Date().toISOString()
 const id = (prefix) => `${prefix}_${randomUUID()}`
@@ -30,6 +40,10 @@ function asStringList(value, limit = 40) {
   return [...new Set(value.filter((item) => typeof item === "string").map((item) => asText(item)).filter(Boolean))].slice(0, limit)
 }
 
+function mergedConstraints(value) {
+  return [...new Set([...DEFAULT_CONSTRAINTS, ...asStringList(value)])].slice(0, 40)
+}
+
 function emptyState() {
   const ts = now()
   return {
@@ -40,7 +54,7 @@ function emptyState() {
       role: "Android-first control-plane agent",
       controlPlane: "Android",
       gateway: "Termux WebSocket gateway",
-      localRuntime: "Termux / Ubuntu PRoot",
+      localRuntime: "Termux gateway with Ubuntu PRoot executors",
       memoryOwner: "CLAW Bridge",
     },
     project: {
@@ -49,10 +63,7 @@ function emptyState() {
       goal: "",
       summary: "",
       decisions: [],
-      constraints: [
-        "Protected external actions require explicit approval.",
-        "Shared context belongs to CLAW Bridge, not to a model provider.",
-      ],
+      constraints: [...DEFAULT_CONSTRAINTS],
       currentTask: null,
       latestResult: null,
       updatedAt: ts,
@@ -70,7 +81,7 @@ function sanitizeProjectPatch(value) {
   if ("goal" in patch) next.goal = asText(patch.goal)
   if ("summary" in patch) next.summary = asText(patch.summary)
   if ("decisions" in patch) next.decisions = asStringList(patch.decisions)
-  if ("constraints" in patch) next.constraints = asStringList(patch.constraints)
+  if ("constraints" in patch) next.constraints = mergedConstraints(patch.constraints)
   if ("currentTask" in patch) {
     if (patch.currentTask === null) next.currentTask = null
     else if (patch.currentTask && typeof patch.currentTask === "object") {
@@ -124,6 +135,13 @@ function sanitizeResult(value) {
 function validateState(value) {
   if (!value || typeof value !== "object" || value.version !== VERSION || !value.project || !Array.isArray(value.handoffs) || !Array.isArray(value.notes)) {
     throw new Error("Invalid CLAW context store")
+  }
+  value.project.constraints = mergedConstraints(value.project.constraints)
+  if (value.identity && typeof value.identity === "object") {
+    value.identity.localRuntime = "Termux gateway with Ubuntu PRoot executors"
+  }
+  if (!value.project.summary && value.project.goal && value.handoffs.some((item) => item?.goal === value.project.goal)) {
+    value.project.goal = ""
   }
   return value
 }
@@ -246,7 +264,6 @@ export class ContextStore {
         owner: handoff.to,
         updatedAt: now(),
       }
-      if (!state.project.goal) state.project.goal = handoff.goal
       state.project.updatedAt = now()
       return handoff
     })
