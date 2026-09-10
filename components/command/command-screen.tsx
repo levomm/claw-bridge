@@ -5,6 +5,7 @@ import { BrainCircuitIcon, CheckIcon, PlayIcon, RefreshCwIcon, SaveIcon, SquareI
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useBridge } from "@/components/providers/bridge-provider"
+import { useLanguage } from "@/components/providers/language-provider"
 import { TARGET_LABELS, type PermissionMode, type RunEvent, type RunHandle, type Target } from "@/lib/gateway"
 import type { ClawContextSnapshot } from "@/lib/context/types"
 import { Button } from "@/components/ui/button"
@@ -18,11 +19,6 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Spinner } from "@/components/ui/spinner"
 
 const TARGETS = Object.keys(TARGET_LABELS) as Target[]
-const MODES: Array<{ value: PermissionMode; label: string }> = [
-  { value: "ask", label: "Ask" },
-  { value: "allow-once", label: "Once" },
-  { value: "project-default", label: "Default" },
-]
 
 type RunState = "idle" | "preparing" | "running" | "done" | "stopped" | "error"
 
@@ -33,6 +29,7 @@ function compact(text: string, limit = 360) {
 
 export function CommandScreen() {
   const { client, settings, connectionState } = useBridge()
+  const { t, language } = useLanguage()
   const [input, setInput] = React.useState("")
   const [target, setTarget] = React.useState<Target>(settings.defaultTarget)
   const [mode, setMode] = React.useState<PermissionMode>(settings.defaultPermissionMode)
@@ -45,6 +42,24 @@ export function CommandScreen() {
 
   const offline = connectionState !== "online"
   const running = runState === "running" || runState === "preparing"
+  const modes: Array<{ value: PermissionMode; label: string }> = [
+    { value: "ask", label: t("chat.ask") },
+    { value: "allow-once", label: t("chat.once") },
+    { value: "project-default", label: t("chat.default") },
+  ]
+
+  const localizedRunState = (state: RunState) => {
+    if (language === "en") return state
+    const labels: Record<RunState, string> = {
+      idle: "ootel",
+      preparing: "valmistan",
+      running: "töötab",
+      done: "valmis",
+      stopped: "peatatud",
+      error: "viga",
+    }
+    return labels[state]
+  }
 
   const refreshContext = React.useCallback(async () => {
     if (offline) return
@@ -52,11 +67,11 @@ export function CommandScreen() {
     try {
       setContext(await client.getContext())
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not load shared context")
+      toast.error(error instanceof Error ? error.message : (language === "et" ? "Ühiskonteksti laadimine ebaõnnestus" : "Could not load shared context"))
     } finally {
       setContextBusy(false)
     }
-  }, [client, offline])
+  }, [client, offline, language])
 
   React.useEffect(() => {
     if (!offline) void refreshContext()
@@ -80,9 +95,9 @@ export function CommandScreen() {
       await client.updateProjectContext({ goal: plan, summary: plan })
       const next = await client.addContextNote(`Plan: ${plan}`, "chat")
       setContext(next)
-      toast.success("Plan saved to CLAW memory")
+      toast.success(t("chat.planSaved"))
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not save plan")
+      toast.error(error instanceof Error ? error.message : (language === "et" ? "Plaani salvestamine ebaõnnestus" : "Could not save plan"))
     } finally {
       setContextBusy(false)
     }
@@ -116,13 +131,13 @@ export function CommandScreen() {
       })
     } catch (error) {
       setRunState("error")
-      setEvents([{ id: crypto.randomUUID(), type: "error", text: error instanceof Error ? error.message : "Could not start run", ts: new Date().toISOString() }])
+      setEvents([{ id: crypto.randomUUID(), type: "error", text: error instanceof Error ? error.message : (language === "et" ? "Töö käivitamine ebaõnnestus" : "Could not start run"), ts: new Date().toISOString() }])
     }
   }
 
   function stop() {
     handleRef.current?.stop()
-    toast("Run stopped")
+    toast(t("chat.runStopped"))
   }
 
   const latest = context?.project.latestResult
@@ -136,50 +151,50 @@ export function CommandScreen() {
         <CardHeader className="gap-2 pb-2">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <CardDescription className="font-mono text-[10px] uppercase tracking-[0.18em]">Current context</CardDescription>
+              <CardDescription className="font-mono text-[10px] uppercase tracking-[0.18em]">{t("chat.currentContext")}</CardDescription>
               <CardTitle className="mt-1 flex items-center gap-2 text-base">
                 <BrainCircuitIcon className="size-4 text-primary" />
-                {context?.project.name ?? "CLAW shared memory"}
+                {context?.project.name ?? t("chat.sharedMemory")}
               </CardTitle>
             </div>
-            <Button variant="ghost" size="icon" aria-label="Refresh shared context" onClick={() => void refreshContext()} disabled={offline || contextBusy}>
+            <Button variant="ghost" size="icon" aria-label={t("chat.refreshContext")} onClick={() => void refreshContext()} disabled={offline || contextBusy}>
               {contextBusy ? <Spinner className="size-4" /> : <RefreshCwIcon />}
             </Button>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm">
           <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary" className="font-mono text-[10px]">{runtime?.branch || "no branch"}</Badge>
+            <Badge variant="secondary" className="font-mono text-[10px]">{runtime?.branch || t("chat.noBranch")}</Badge>
             <Badge variant="secondary" className="font-mono text-[10px]">{runtime?.gatewayName || "gateway"}</Badge>
             {task && <Badge className="font-mono text-[10px]">{task.state}</Badge>}
           </div>
           {context?.project.goal ? (
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Goal</p>
+              <p className="text-xs font-medium text-muted-foreground">{t("chat.goal")}</p>
               <p className="mt-1 leading-relaxed">{compact(context.project.goal, 260)}</p>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">No project goal saved yet. Save a plan below and every agent gets it automatically.</p>
+            <p className="text-xs text-muted-foreground">{t("chat.noGoal")}</p>
           )}
           {latest && (
             <div className="rounded-lg border border-border/70 bg-background/50 p-3">
               <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
                 {latest.ok && <CheckIcon className="size-3.5 text-primary" />}
-                Latest from {latest.executor}{latest.commit ? ` · ${latest.commit}` : ""}
+                {t("chat.latestFrom", { executor: latest.executor })}{latest.commit ? ` · ${latest.commit}` : ""}
               </div>
               <p className="text-xs leading-relaxed">{compact(latest.summary)}</p>
-              {!latestWasReadOnly && latest.changedFiles.length > 0 && <p className="mt-2 font-mono text-[10px] text-muted-foreground">{latest.changedFiles.length} changed files</p>}
+              {!latestWasReadOnly && latest.changedFiles.length > 0 && <p className="mt-2 font-mono text-[10px] text-muted-foreground">{t("chat.changedFiles", { count: latest.changedFiles.length })}</p>}
             </div>
           )}
         </CardContent>
       </Card>
 
-      <section aria-label="Execution output" className="flex min-h-48 flex-1 flex-col gap-2">
+      <section aria-label={t("chat.agentOutput")} className="flex min-h-48 flex-1 flex-col gap-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium">Agent output</h2>
+          <h2 className="text-sm font-medium">{t("chat.agentOutput")}</h2>
           <div className="flex items-center gap-2">
             {running && <Spinner className="size-3" />}
-            <Badge variant={runState === "error" ? "destructive" : "secondary"} className="font-mono text-[10px] uppercase">{runState}</Badge>
+            <Badge variant={runState === "error" ? "destructive" : "secondary"} className="font-mono text-[10px] uppercase">{localizedRunState(runState)}</Badge>
           </div>
         </div>
         <div ref={outputRef} role="log" aria-live="polite" className="min-h-48 max-h-[40dvh] flex-1 overflow-y-auto rounded-xl border border-border bg-card/80 p-3 font-mono text-xs leading-relaxed backdrop-blur">
@@ -187,8 +202,8 @@ export function CommandScreen() {
             <Empty className="h-full min-h-40 border-0 p-0">
               <EmptyHeader>
                 <EmptyMedia variant="icon"><TerminalIcon /></EmptyMedia>
-                <EmptyTitle>{offline ? "Gateway offline" : "Shared context ready"}</EmptyTitle>
-                <EmptyDescription>{offline ? "Reconnect to continue." : "Plan here, then send it to Codex or Claude without starting from zero."}</EmptyDescription>
+                <EmptyTitle>{offline ? t("chat.gatewayOffline") : t("chat.sharedReady")}</EmptyTitle>
+                <EmptyDescription>{offline ? t("chat.reconnectContinue") : t("chat.readyHint")}</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : events.map((event) => (
@@ -205,23 +220,23 @@ export function CommandScreen() {
       <div className="sticky bottom-2 z-20 rounded-2xl border border-border bg-background/95 p-3 shadow-2xl backdrop-blur-xl">
         <div className="mb-3 grid grid-cols-2 gap-2">
           <Field>
-            <FieldLabel htmlFor="target" className="text-xs">Send to</FieldLabel>
+            <FieldLabel htmlFor="target" className="text-xs">{t("chat.sendTo")}</FieldLabel>
             <Select value={target} onValueChange={(value) => value && setTarget(value as Target)} disabled={running}>
               <SelectTrigger id="target" className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent><SelectGroup>{TARGETS.map((item) => <SelectItem key={item} value={item}>{TARGET_LABELS[item]}</SelectItem>)}</SelectGroup></SelectContent>
             </Select>
           </Field>
           <Field>
-            <FieldLabel className="text-xs">Permission</FieldLabel>
+            <FieldLabel className="text-xs">{t("chat.permission")}</FieldLabel>
             <ToggleGroup value={[mode]} onValueChange={(value) => value[0] && setMode(value[0] as PermissionMode)} variant="outline" disabled={running} className="grid w-full grid-cols-3">
-              {MODES.map((item) => <ToggleGroupItem key={item.value} value={item.value} className="min-w-0 px-1 text-[10px]">{item.label}</ToggleGroupItem>)}
+              {modes.map((item) => <ToggleGroupItem key={item.value} value={item.value} className="min-w-0 px-1 text-[10px]">{item.label}</ToggleGroupItem>)}
             </ToggleGroup>
           </Field>
         </div>
         <Textarea
           id="command-input"
           rows={3}
-          placeholder="Plan here. CLAW will pass the shared context to the selected agent."
+          placeholder={t("chat.placeholder")}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onFocus={(event) => window.setTimeout(() => event.currentTarget.scrollIntoView({ block: "nearest", behavior: "smooth" }), 120)}
@@ -229,13 +244,13 @@ export function CommandScreen() {
           className="min-h-20 max-h-36 resize-none text-sm"
         />
         <div className="mt-2 flex gap-2">
-          <Button variant="outline" className="h-11" onClick={() => void savePlan()} disabled={!input.trim() || running || offline || contextBusy}><SaveIcon />Save plan</Button>
+          <Button variant="outline" className="h-11" onClick={() => void savePlan()} disabled={!input.trim() || running || offline || contextBusy}><SaveIcon />{t("chat.savePlan")}</Button>
           {running ? (
-            <Button variant="destructive" className="h-11 flex-1" onClick={stop}><SquareIcon />Stop</Button>
+            <Button variant="destructive" className="h-11 flex-1" onClick={stop}><SquareIcon />{t("chat.stop")}</Button>
           ) : (
-            <Button className="h-11 flex-1" onClick={() => void start()} disabled={!input.trim() || offline}><PlayIcon />Send with context</Button>
+            <Button className="h-11 flex-1" onClick={() => void start()} disabled={!input.trim() || offline}><PlayIcon />{t("chat.sendContext")}</Button>
           )}
-          <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Clear output" disabled={running || events.length === 0} onClick={() => { setEvents([]); setRunState("idle") }}><Trash2Icon /></Button>
+          <Button variant="ghost" size="icon" className="h-11 w-11" aria-label={t("chat.clearOutput")} disabled={running || events.length === 0} onClick={() => { setEvents([]); setRunState("idle") }}><Trash2Icon /></Button>
         </div>
       </div>
     </div>
