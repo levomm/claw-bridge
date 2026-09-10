@@ -3,10 +3,12 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutGridIcon, SendIcon, TerminalSquareIcon, ShieldCheckIcon, SettingsIcon } from "lucide-react"
+import { LayoutGridIcon, SendIcon, TerminalSquareIcon, ShieldCheckIcon, SettingsIcon, PaletteIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBridge } from "@/components/providers/bridge-provider"
+import { useThemeProfile } from "@/components/providers/theme-profile-provider"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { StatusDot } from "@/components/status-dot"
 
 const NAV = [
@@ -30,6 +32,7 @@ export function AppShell({
 }) {
   const pathname = usePathname()
   const { connectionState, status } = useBridge()
+  const { profile, resolvedProfile, cycleProfile } = useThemeProfile()
   const pending = status?.pendingApprovals ?? 0
   const [keyboardOpen, setKeyboardOpen] = React.useState(false)
 
@@ -68,6 +71,17 @@ export function AppShell({
             <h1 className="text-base font-semibold">{title}</h1>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9"
+              aria-label={`Change appearance. Current ${profile === "auto" ? `Auto (${resolvedProfile})` : resolvedProfile}`}
+              title="Quick appearance switch"
+              onClick={cycleProfile}
+            >
+              <PaletteIcon className="size-4" />
+            </Button>
             <StatusDot state={connectionState} withLabel />
             {action}
           </div>
