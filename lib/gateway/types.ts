@@ -1,4 +1,5 @@
 import type { SeekClawClient } from "../seekclaw/types"
+import type { ClawContextSnapshot, ContextHandoff, CreateHandoffInput, ProjectContextPatch } from "../context/types"
 
 // Typed contract between the UI and any gateway transport.
 // MockGatewayClient implements this today; a WebSocket/HTTP client can replace it later.
@@ -44,6 +45,7 @@ export interface GatewayStatus {
   android: ServiceState
   telegramBot: ServiceState
   shizuku: ServiceState
+  context?: ServiceState
   device: DeviceInfo
   activeRuns: number
   pendingApprovals: number
@@ -54,6 +56,7 @@ export interface RunRequest {
   input: string
   target: Target
   permissionMode: PermissionMode
+  handoffId?: string
 }
 
 export type RunEventType = "status" | "stdout" | "stderr" | "tool" | "done" | "error" | "stopped"
@@ -124,6 +127,13 @@ export interface GatewayClient extends SeekClawClient {
   subscribeStatus(listener: (status: GatewayStatus) => void): () => void
 
   runCommand(request: RunRequest, onEvent: (event: RunEvent) => void): RunHandle
+
+  getContext(): Promise<ClawContextSnapshot>
+  updateProjectContext(patch: ProjectContextPatch): Promise<ClawContextSnapshot>
+  addContextNote(text: string, source?: string): Promise<ClawContextSnapshot>
+  listContextHandoffs(): Promise<ContextHandoff[]>
+  getContextHandoff(handoffId: string): Promise<ContextHandoff>
+  createContextHandoff(input: CreateHandoffInput): Promise<ContextHandoff>
 
   listTerminalSessions(): Promise<TerminalSession[]>
   createTerminalSession(name?: string): Promise<TerminalSession>
