@@ -1,4 +1,5 @@
 import type { CapabilityProfile, JobAction, JobRecord } from "../seekclaw/types"
+import type { ClawContextSnapshot, ContextHandoff, CreateHandoffInput, ProjectContextPatch } from "../context/types"
 import { Capacitor } from "@capacitor/core"
 import type { EventMessage, GatewayMethod, RequestMessage, ServerMessage } from "./protocol"
 import {
@@ -142,6 +143,30 @@ export class WebSocketGatewayClient implements GatewayClient {
         void this.request("run.stop", { channel }).catch(() => undefined)
       },
     }
+  }
+
+  getContext() {
+    return this.request<ClawContextSnapshot>("context.get")
+  }
+
+  updateProjectContext(patch: ProjectContextPatch) {
+    return this.request<ClawContextSnapshot>("context.project.update", patch)
+  }
+
+  addContextNote(text: string, source = "chat") {
+    return this.request<ClawContextSnapshot>("context.memory.add", { text, source })
+  }
+
+  listContextHandoffs() {
+    return this.request<ContextHandoff[]>("context.handoff.list")
+  }
+
+  getContextHandoff(handoffId: string) {
+    return this.request<ContextHandoff>("context.handoff.get", { handoffId })
+  }
+
+  createContextHandoff(input: CreateHandoffInput) {
+    return this.request<ContextHandoff>("context.handoff.create", input)
   }
 
   listTerminalSessions() {
