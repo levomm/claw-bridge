@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { useBridge } from "@/components/providers/bridge-provider"
 import { useThemeProfile } from "@/components/providers/theme-profile-provider"
 import { useLanguage } from "@/components/providers/language-provider"
+import { ObserverBanner } from "@/components/observer/observer-banner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { StatusDot } from "@/components/status-dot"
@@ -92,6 +93,8 @@ export function AppShell({
           </div>
         </div>
       </header>
+
+      {!keyboardOpen && <ObserverBanner />}
 
       <main
         className={cn("relative z-[1] flex-1", padded && "px-4 py-4")}
