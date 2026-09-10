@@ -51,13 +51,15 @@ export function TerminalScreen() {
       if (event.type === "sessions" && event.sessions) {
         setSessions(event.sessions)
         setActive((current) => current ?? event.sessions?.[0]?.id ?? null)
+        if (event.sessions.length === 0) next.create()
       } else if (event.type === "session" && event.session) {
         setSessions((prev) => [...prev.filter((item) => item.id !== event.session!.id), event.session!])
         setActive(event.session.id)
       } else if ((event.type === "output" || event.type === "error") && event.sessionId) {
         const sid = event.sessionId
-        if (!event.text) return
-        setBuffers((prev) => ({ ...prev, [sid]: `${prev[sid] || ""}${cleanAnsi(event.text)}`.slice(-120000) }))
+        const text = event.text
+        if (!text) return
+        setBuffers((prev) => ({ ...prev, [sid]: `${prev[sid] || ""}${cleanAnsi(text)}`.slice(-120000) }))
       } else if (event.type === "closed" && event.sessionId) {
         setSessions((prev) => prev.filter((item) => item.id !== event.sessionId))
         setActive((current) => current === event.sessionId ? null : current)
@@ -66,7 +68,6 @@ export function TerminalScreen() {
     next.connect().then(() => {
       setConnected(true)
       next.list()
-      next.create()
     }).catch((error) => {
       setConnected(false)
       toast.error(error instanceof Error ? error.message : "Terminal connection failed")
