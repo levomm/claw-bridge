@@ -22,7 +22,7 @@ const frontendLog = join(logDir, "frontend.log")
 const gatewayHost = process.env.CLAW_HOST || "127.0.0.1"
 const gatewayPort = Number(process.env.CLAW_PORT || 8787)
 const ipv4ProxyPort = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
-const ipv4ProxyEnabled = process.env.CLAW_IPV4_PROXY !== "0"
+const ipv4ProxyEnabled = process.env.CLAW_IPV4_PROXY === "1"
 const frontendHost = process.env.CLAW_FRONTEND_HOST || "127.0.0.1"
 const frontendPort = Number(process.env.CLAW_FRONTEND_PORT || 3000)
 const command = process.argv[2] || "help"
@@ -201,6 +201,7 @@ async function install() {
     runChecked(process.execPath, [join(projectDir, "node_modules", "next", "dist", "bin", "next"), "build"], { env: cleanEnv })
   }
   await chmod(join(gatewayDir, "claw.mjs"), 0o700)
+  await chmod(join(gatewayDir, "bin", "codex"), 0o700).catch(() => {})
   await linkCli()
 
   const bootDir = join(homedir(), ".termux", "boot")
@@ -215,11 +216,20 @@ async function install() {
 async function up() {
   await ensureState()
   await getToken()
+  await chmod(join(gatewayDir, "bin", "codex"), 0o700).catch(() => {})
   if (isTermux()) spawnSync("termux-wake-lock", [], { stdio: "ignore" })
+  const gatewayPath = `${join(gatewayDir, "bin")}:${process.env.PATH || ""}`
   const gateway = await startService({
     name: "gateway", pidFile: gatewayPidFile, logFile: gatewayLog,
     script: join(gatewayDir, "server.mjs"),
-    env: { CLAW_HOST: gatewayHost, CLAW_PORT: String(gatewayPort), CLAW_IPV4_PROXY_PORT: String(ipv4ProxyPort) },
+    env: {
+      CLAW_HOST: gatewayHost,
+      CLAW_PORT: String(gatewayPort),
+      CLAW_PROJECT: projectDir,
+      CLAW_IPV4_PROXY: ipv4ProxyEnabled ? "1" : "0",
+      CLAW_IPV4_PROXY_PORT: String(ipv4ProxyPort),
+      PATH: gatewayPath,
+    },
     port: gatewayPort, healthUrl: `http://127.0.0.1:${gatewayPort}/health`,
     reservedPorts: ipv4ProxyEnabled ? [{ name: "IPv4 agent proxy", port: ipv4ProxyPort }] : [],
   })
