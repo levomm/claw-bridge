@@ -1,0 +1,18 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+PROJECT="${CLAW_PROJECT:-$HOME/CLAW-Bridge-v03}"
+
+if command -v proot-distro >/dev/null 2>&1 && proot-distro login ubuntu -- test -x /root/.local/bin/codex >/dev/null 2>&1; then
+  exec proot-distro login ubuntu --bind "$PROJECT:/workspace" -- bash -lc '
+    cd /workspace
+    exec /root/.local/bin/codex "$@"
+  ' bash "$@"
+fi
+
+if [ -x "$HOME/.local/bin/codex-termux-native" ]; then
+  exec "$HOME/.local/bin/codex-termux-native" "$@"
+fi
+
+printf '%s\n' 'CLAW Codex executor unavailable. Install Codex in Ubuntu PRoot or restore codex-termux-native.' >&2
+exit 127
