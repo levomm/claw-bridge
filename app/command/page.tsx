@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Chat" }
 
 export default function CommandPage() {
   return (
-    <AppShell title="Chat">
+    <AppShell titleKey="title.chat">
       <ConnectionGate>
         <CommandScreen />
       </ConnectionGate>
