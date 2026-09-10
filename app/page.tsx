@@ -4,7 +4,7 @@ import { Dashboard } from "@/components/dashboard/dashboard"
 
 export default function Page() {
   return (
-    <AppShell title="Dashboard">
+    <AppShell titleKey="title.dashboard">
       <ConnectionGate>
         <Dashboard />
       </ConnectionGate>
