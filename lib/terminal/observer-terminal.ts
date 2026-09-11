@@ -21,28 +21,63 @@ export class ObserverTerminalConnection {
 
   constructor(private token: string) {}
 
-  connect() {
-    if (this.socket?.readyState === WebSocket.OPEN) return Promise.resolve()
-    this.close()
-    const socket = new WebSocket("ws://127.0.0.1:8790/terminal")
+  private async connectUrl(url: string) {
+    const socket = new WebSocket(url)
     this.socket = socket
     return new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(() => reject(new Error("Interactive terminal connection timed out")), 8000)
-      socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "auth", token: this.token })))
+      let settled = false
+      const fail = (error: Error) => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timer)
+        reject(error)
+      }
+      const timer = window.setTimeout(() => {
+        try { socket.close() } catch {}
+        fail(new Error(`Interactive terminal connection timed out: ${url}`))
+      }, 5000)
+
+      socket.addEventListener("open", () => {
+        socket.send(JSON.stringify({ type: "auth", token: this.token }))
+      })
       socket.addEventListener("message", (message) => {
         let data: ObserverTerminalEvent
         try { data = JSON.parse(String(message.data)) as ObserverTerminalEvent } catch { return }
-        if (data.type === "ready") {
+        if (data.type === "ready" && !settled) {
+          settled = true
           window.clearTimeout(timer)
           resolve()
         }
         this.listeners.forEach((listener) => listener(data))
       })
       socket.addEventListener("error", () => {
-        window.clearTimeout(timer)
-        reject(new Error("Could not reach interactive terminal service"))
+        fail(new Error(`Could not reach interactive terminal service: ${url}`))
+      }, { once: true })
+      socket.addEventListener("close", (event) => {
+        if (!settled) fail(new Error(`Interactive terminal closed (${event.code || 1006}) at ${url}`))
       }, { once: true })
     })
+  }
+
+  async connect() {
+    if (this.socket?.readyState === WebSocket.OPEN) return
+    this.close()
+    const urls = [
+      "ws://localhost:8790/terminal",
+      "ws://127.0.0.1:8790/terminal",
+    ]
+    let lastError: Error | null = null
+    for (const url of urls) {
+      try {
+        await this.connectUrl(url)
+        return
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Interactive terminal connection failed")
+        try { this.socket?.close() } catch {}
+        this.socket = null
+      }
+    }
+    throw lastError || new Error("Could not reach interactive terminal service")
   }
 
   subscribe(listener: (event: ObserverTerminalEvent) => void) {
@@ -62,7 +97,7 @@ export class ObserverTerminalConnection {
   list() { this.send({ type: "list" }) }
 
   close() {
-    this.socket?.close()
+    try { this.socket?.close() } catch {}
     this.socket = null
   }
 }
