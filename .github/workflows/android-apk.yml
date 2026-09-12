@@ -43,7 +43,7 @@ jobs:
       - name: Upload CLAW Bridge APK
         uses: actions/upload-artifact@v4
         with:
-          name: claw-bridge-v0.4.7-stable-signed
+          name: claw-bridge-v0.4.8-stable-signed
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
