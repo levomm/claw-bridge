@@ -12,8 +12,10 @@ import { SeekClawHttpAdapter } from "./seekclaw/adapter.mjs"
 import { JobStore } from "./seekclaw/store.mjs"
 import { SeekClawService } from "./seekclaw/service.mjs"
 import { ContextStore } from "./context-store.mjs"
+import { BrainService } from "./brain-service.mjs"
+import { buildCompactSharedContext, CONTEXT_CHAR_BUDGET } from "./context-budget.mjs"
 
-const VERSION = "0.4.6"
+const VERSION = "0.4.8"
 const PORT = Number(process.env.CLAW_PORT || 8787)
 const HOST = process.env.CLAW_HOST || "127.0.0.1"
 const IPV4_PROXY_PORT = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
@@ -29,8 +31,10 @@ await mkdir(DATA_DIR, { recursive: true, mode: 0o700 })
 const TOKEN = await loadToken()
 const seekclaw = new SeekClawService({ adapter: new SeekClawHttpAdapter(), store: new JobStore(join(DATA_DIR, "seekclaw-jobs.json")) })
 const contextStore = new ContextStore(join(DATA_DIR, "context.json"))
+const brain = new BrainService(join(DATA_DIR, "brain-config.json"))
 let contextRecoveryError = null
 await seekclaw.recover()
+await brain.recover()
 try {
   await contextStore.recover()
 } catch (error) {
@@ -128,6 +132,7 @@ async function status() {
     telegramBot: process.env.TELEGRAM_BOT_TOKEN ? "online" : "offline",
     shizuku: shizuku ? "online" : "offline",
     context: contextRecoveryError ? "degraded" : "online",
+    brain: brain.publicConfig().enabled && brain.publicConfig().configured ? "online" : "offline",
     device: await deviceInfo(),
     activeRuns: runs.size,
     pendingApprovals: (await approvalList()).filter((item) => item.status === "pending").length,
@@ -239,36 +244,26 @@ async function contextSnapshot() {
 async function contextualizeInput(input, target, handoffId) {
   const snapshot = await contextSnapshot()
   const handoff = handoffId ? await contextStore.getHandoff(String(handoffId)) : null
-  const recentHandoffs = snapshot.handoffs.slice(0, 6).map((item) => ({
-    id: item.id,
-    from: item.from,
-    to: item.to,
-    goal: item.goal,
-    plan: item.plan,
-    decisions: item.decisions,
-    constraints: item.constraints,
-    relevantFiles: item.relevantFiles,
-    acceptanceCriteria: item.acceptanceCriteria,
-    status: item.status,
-    result: item.result ? {
-      ok: item.result.ok,
-      executor: item.result.executor,
-      summary: item.result.summary.slice(-2400),
-      changedFiles: item.result.changedFiles,
-      tests: item.result.tests,
-      blockers: item.result.blockers,
-      commit: item.result.commit,
-    } : null,
-  }))
-  const shared = {
-    identity: snapshot.identity,
-    runtime: snapshot.runtime,
-    project: snapshot.project,
-    recentMemory: snapshot.notes.slice(0, 8),
-    recentHandoffs,
-    handoff,
-  }
+  const shared = buildCompactSharedContext(snapshot, handoff, input, CONTEXT_CHAR_BUDGET)
   return `[CLAW SHARED CONTEXT]\n${JSON.stringify(shared, null, 2)}\n[/CLAW SHARED CONTEXT]\n\nYou are operating as ${target} inside CLAW Bridge. Android is the control plane. Treat the shared context as continuity from prior planning, but verify dynamic repository facts before acting. Do not ask the user to repeat decisions already present here. Protected external actions still require CLAW approval. Do not expose secrets or credentials in summaries.\n\nUSER REQUEST:\n${input}`
+}
+
+async function planWithBrain(params) {
+  const goal = String(params?.goal || "").trim()
+  if (!goal) throw new Error("Brain goal is required")
+  const snapshot = await contextSnapshot()
+  let seekclawJob = null
+  if (params?.seekclawJobId) {
+    const record = await seekclaw.get(String(params.seekclawJobId))
+    seekclawJob = {
+      job: record.job,
+      state: record.state,
+      evaluation: record.evaluation,
+      submissionReady: Boolean(record.submission),
+    }
+  }
+  const context = buildCompactSharedContext(snapshot, null, goal, Math.min(CONTEXT_CHAR_BUDGET, 10_000))
+  return brain.plan({ goal, context, runtime: snapshot.runtime, seekclawJob })
 }
 
 function proxyHostAllowed(host) {
@@ -489,6 +484,13 @@ async function dispatch(ws, method, params) {
     case "context.handoff.list": return contextStore.listHandoffs()
     case "context.handoff.get": return contextStore.getHandoff(params?.handoffId)
     case "context.handoff.create": return contextStore.createHandoff(params || {})
+    case "brain.config.get": return brain.publicConfig()
+    case "brain.config.update": {
+      const result = await brain.update(params || {})
+      await broadcastStatus()
+      return result
+    }
+    case "brain.plan": return planWithBrain(params)
     case "seekclaw.jobs.list": return seekclaw.list()
     case "seekclaw.jobs.get": return seekclaw.get(params?.jobId)
     case "seekclaw.jobs.discover": return seekclaw.discover()
@@ -520,7 +522,7 @@ async function dispatch(ws, method, params) {
 const server = createServer((request, response) => {
   if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" })
-    response.end(JSON.stringify({ ok: true, version: VERSION }))
+    response.end(JSON.stringify({ ok: true, version: VERSION, brain: brain.publicConfig().configured }))
     return
   }
   response.writeHead(404).end()
