@@ -1,8 +1,8 @@
 import type { SeekClawClient } from "../seekclaw/types"
 import type { ClawContextSnapshot, ContextHandoff, CreateHandoffInput, ProjectContextPatch } from "../context/types"
+import type { BrainConfigPatch, BrainPlan, BrainPlanRequest, BrainPublicConfig } from "../brain/types"
 
 // Typed contract between the UI and any gateway transport.
-// MockGatewayClient implements this today; a WebSocket/HTTP client can replace it later.
 
 export type ServiceState = "online" | "offline" | "degraded" | "unknown"
 
@@ -46,6 +46,7 @@ export interface GatewayStatus {
   telegramBot: ServiceState
   shizuku: ServiceState
   context?: ServiceState
+  brain?: ServiceState
   device: DeviceInfo
   activeRuns: number
   pendingApprovals: number
@@ -118,7 +119,6 @@ export class GatewayError extends Error {
 }
 
 export interface GatewayClient extends SeekClawClient {
-  /** Validate credentials and open a session. Resolves with the initial status. */
   connect(connection: GatewayConnection): Promise<GatewayStatus>
   disconnect(): void
   isConnected(): boolean
@@ -134,6 +134,10 @@ export interface GatewayClient extends SeekClawClient {
   listContextHandoffs(): Promise<ContextHandoff[]>
   getContextHandoff(handoffId: string): Promise<ContextHandoff>
   createContextHandoff(input: CreateHandoffInput): Promise<ContextHandoff>
+
+  getBrainConfig(): Promise<BrainPublicConfig>
+  updateBrainConfig(patch: BrainConfigPatch): Promise<BrainPublicConfig>
+  planBrainAction(request: BrainPlanRequest): Promise<BrainPlan>
 
   listTerminalSessions(): Promise<TerminalSession[]>
   createTerminalSession(name?: string): Promise<TerminalSession>
