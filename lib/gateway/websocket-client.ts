@@ -1,5 +1,6 @@
 import type { CapabilityProfile, JobAction, JobRecord } from "../seekclaw/types"
 import type { ClawContextSnapshot, ContextHandoff, CreateHandoffInput, ProjectContextPatch } from "../context/types"
+import type { BrainConfigPatch, BrainPlan, BrainPlanRequest, BrainPublicConfig } from "../brain/types"
 import { Capacitor } from "@capacitor/core"
 import type { EventMessage, GatewayMethod, RequestMessage, ServerMessage } from "./protocol"
 import {
@@ -167,6 +168,18 @@ export class WebSocketGatewayClient implements GatewayClient {
 
   createContextHandoff(input: CreateHandoffInput) {
     return this.request<ContextHandoff>("context.handoff.create", input)
+  }
+
+  getBrainConfig() {
+    return this.request<BrainPublicConfig>("brain.config.get")
+  }
+
+  updateBrainConfig(patch: BrainConfigPatch) {
+    return this.request<BrainPublicConfig>("brain.config.update", patch)
+  }
+
+  planBrainAction(request: BrainPlanRequest) {
+    return this.request<BrainPlan>("brain.plan", request, 60_000)
   }
 
   listTerminalSessions() {
