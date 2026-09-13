@@ -2,8 +2,9 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { WifiOffIcon, RefreshCwIcon } from "lucide-react"
+import { WifiOffIcon, RefreshCwIcon, LinkIcon } from "lucide-react"
 import { useBridge } from "@/components/providers/bridge-provider"
+import { useLanguage } from "@/components/providers/language-provider"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -13,6 +14,7 @@ import { Spinner } from "@/components/ui/spinner"
 export function ConnectionGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { hydrated, connection, connectionState, connectionError, reconnect } = useBridge()
+  const { t } = useLanguage()
 
   React.useEffect(() => {
     if (hydrated && !connection) router.replace("/pair")
@@ -33,19 +35,25 @@ export function ConnectionGate({ children }: { children: React.ReactNode }) {
       {(connectionState === "offline" || connectionState === "error") && (
         <Alert variant={connectionState === "error" ? "destructive" : "default"}>
           <WifiOffIcon />
-          <AlertTitle>{connectionState === "error" ? "Gateway error" : "Gateway offline"}</AlertTitle>
-          <AlertDescription>{connectionError ?? "Live data is paused until the gateway is reachable."}</AlertDescription>
+          <AlertTitle>{connectionState === "error" ? t("connection.gatewayError") : t("connection.gatewayOffline")}</AlertTitle>
+          <AlertDescription>{connectionError ?? t("connection.paused")}</AlertDescription>
           <AlertAction>
-            <Button size="sm" variant="outline" onClick={() => void reconnect()}>
-              <RefreshCwIcon data-icon="inline-start" />
-              Retry
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => void reconnect()}>
+                <RefreshCwIcon data-icon="inline-start" />
+                {t("common.retry")}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => router.push("/pair")}>
+                <LinkIcon data-icon="inline-start" />
+                {t("common.repair")}
+              </Button>
+            </div>
           </AlertAction>
         </Alert>
       )}
       {connectionState === "connecting" && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner /> Connecting to {connection.gatewayName}…
+          <Spinner /> {t("connection.connectingTo", { name: connection.gatewayName })}
         </div>
       )}
       {children}

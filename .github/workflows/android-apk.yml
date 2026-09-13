@@ -3,6 +3,8 @@ name: Android APK
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -33,13 +35,15 @@ jobs:
         run: npm run android:sync
         env:
           NODE_OPTIONS: ""
+      - name: Restore stable beta signing key
+        run: base64 -d android/ci/claw-debug.keystore.b64 > android/ci/claw-debug.keystore
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
       - name: Upload CLAW Bridge APK
         uses: actions/upload-artifact@v4
         with:
-          name: claw-bridge-v0.3-android-beta
+          name: claw-bridge-v0.4.8-stable-signed
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30

@@ -8,8 +8,14 @@ import { spawn } from "node:child_process"
 import { lookup } from "node:dns/promises"
 import { connect as connectTcp } from "node:net"
 import { WebSocketServer, WebSocket } from "ws"
+import { SeekClawHttpAdapter } from "./seekclaw/adapter.mjs"
+import { JobStore } from "./seekclaw/store.mjs"
+import { SeekClawService } from "./seekclaw/service.mjs"
+import { ContextStore } from "./context-store.mjs"
+import { BrainService } from "./brain-service.mjs"
+import { buildCompactSharedContext, CONTEXT_CHAR_BUDGET } from "./context-budget.mjs"
 
-const VERSION = "0.3.0"
+const VERSION = "0.4.8"
 const PORT = Number(process.env.CLAW_PORT || 8787)
 const HOST = process.env.CLAW_HOST || "127.0.0.1"
 const IPV4_PROXY_PORT = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
@@ -23,6 +29,18 @@ const startTime = Date.now()
 
 await mkdir(DATA_DIR, { recursive: true, mode: 0o700 })
 const TOKEN = await loadToken()
+const seekclaw = new SeekClawService({ adapter: new SeekClawHttpAdapter(), store: new JobStore(join(DATA_DIR, "seekclaw-jobs.json")) })
+const contextStore = new ContextStore(join(DATA_DIR, "context.json"))
+const brain = new BrainService(join(DATA_DIR, "brain-config.json"))
+let contextRecoveryError = null
+await seekclaw.recover()
+await brain.recover()
+try {
+  await contextStore.recover()
+} catch (error) {
+  contextRecoveryError = error instanceof Error ? error : new Error("Shared context recovery failed")
+  console.error(`Shared context unavailable: ${contextRecoveryError.message}`)
+}
 let audit = await readJson(AUDIT_FILE, [])
 const approvals = new Map()
 const approvalWaiters = new Map()
@@ -113,9 +131,11 @@ async function status() {
     android: androidRuntime ? "online" : "degraded",
     telegramBot: process.env.TELEGRAM_BOT_TOKEN ? "online" : "offline",
     shizuku: shizuku ? "online" : "offline",
+    context: contextRecoveryError ? "degraded" : "online",
+    brain: brain.publicConfig().enabled && brain.publicConfig().configured ? "online" : "offline",
     device: await deviceInfo(),
     activeRuns: runs.size,
-    pendingApprovals: [...approvals.values()].filter((item) => item.status === "pending").length,
+    pendingApprovals: (await approvalList()).filter((item) => item.status === "pending").length,
     lastHeartbeat: now(),
   }
 }
@@ -138,12 +158,12 @@ async function broadcastStatus() {
   broadcast({ type: "event", event: "status", data: await status() })
 }
 
-function approvalList() {
-  return [...approvals.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+async function approvalList() {
+  return [...approvals.values(), ...await seekclaw.listApprovals()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
-function broadcastApprovals() {
-  broadcast({ type: "event", event: "approvals", data: approvalList() })
+async function broadcastApprovals() {
+  broadcast({ type: "event", event: "approvals", data: await approvalList() })
 }
 
 function riskOf(command) {
@@ -153,12 +173,97 @@ function riskOf(command) {
 }
 
 function buildCommand(input, target) {
-  if (target === "codex") return { command: "codex", args: ["exec", input], display: `codex exec ${JSON.stringify(input)}` }
-  if (target === "claude-code") return { command: "claude", args: ["-p", input], display: `claude -p ${JSON.stringify(input)}` }
+  if (target === "codex") return { command: "codex", args: ["exec", "-"], stdin: input, display: "codex exec <stdin>" }
+  if (target === "claude-code") return { command: "claude", args: ["-p"], stdin: input, display: "claude -p <stdin>" }
   if (target === "auto") {
-    return { command: "sh", args: ["-c", `if command -v codex >/dev/null; then codex exec "$1"; elif command -v claude >/dev/null; then claude -p "$1"; else printf '%s\\n' 'No Codex or Claude CLI installed'; exit 127; fi`, "claw-bridge", input], display: input }
+    return {
+      command: "sh",
+      args: ["-c", "if command -v codex >/dev/null; then codex exec -; elif command -v claude >/dev/null; then claude -p; else printf '%s\\n' 'No Codex or Claude CLI installed'; exit 127; fi"],
+      stdin: input,
+      display: "auto agent <stdin>",
+    }
   }
-  return { command: "sh", args: ["-c", input], display: input }
+  return { command: "sh", args: ["-c", input], stdin: null, display: input }
+}
+
+function parseGitStatus(output) {
+  return [...new Set(String(output || "").split("\n").map((line) => line.slice(3).trim()).filter(Boolean))].slice(0, 120)
+}
+
+function extractTestSignals(output) {
+  return String(output || "").split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /(?:tests?|type(?:script)?|build|lint).*(?:pass|success|ok|completed)|(?:pass|success).*(?:tests?|build)/i.test(line))
+    .slice(-20)
+}
+
+function outputTail(stdout, stderr, ok) {
+  const combined = [stdout, stderr].filter(Boolean).join("\n").trim()
+  if (!combined) return ok ? "Completed successfully" : "Run failed without output"
+  return combined.slice(-8000)
+}
+
+async function runtimeContext() {
+  const cwd = process.env.CLAW_PROJECT || homedir()
+  const [repo, branch, commit, codex, claude, ssh] = await Promise.all([
+    capture("git", ["-C", cwd, "config", "--get", "remote.origin.url"], 1800),
+    capture("git", ["-C", cwd, "branch", "--show-current"], 1800),
+    capture("git", ["-C", cwd, "rev-parse", "--short", "HEAD"], 1800),
+    commandExists("codex"),
+    commandExists("claude"),
+    commandExists("ssh"),
+  ])
+  let activeSeekClawJob = null
+  try {
+    const jobs = await seekclaw.list()
+    const active = jobs.find((record) => ["applied", "working", "testing", "awaiting_remote_approval", "ready_to_submit", "awaiting_submit_approval"].includes(record.state))
+    if (active) activeSeekClawJob = { id: active.job.id, title: active.job.title, state: active.state }
+  } catch {}
+  const availableExecutors = ["termux"]
+  if (codex) availableExecutors.push("codex")
+  if (claude) availableExecutors.push("claude-code")
+  if (ssh) availableExecutors.push("ssh")
+  return {
+    cwd,
+    repo,
+    branch,
+    commit,
+    platform: platform(),
+    gatewayName: process.env.CLAW_NAME || hostname() || "claw-bridge",
+    availableExecutors,
+    activeSeekClawJob,
+  }
+}
+
+async function contextSnapshot() {
+  if (contextRecoveryError) throw new Error(`Shared context unavailable: ${contextRecoveryError.message}`)
+  const stored = await contextStore.get()
+  return { ...stored, runtime: await runtimeContext() }
+}
+
+async function contextualizeInput(input, target, handoffId) {
+  const snapshot = await contextSnapshot()
+  const handoff = handoffId ? await contextStore.getHandoff(String(handoffId)) : null
+  const shared = buildCompactSharedContext(snapshot, handoff, input, CONTEXT_CHAR_BUDGET)
+  return `[CLAW SHARED CONTEXT]\n${JSON.stringify(shared, null, 2)}\n[/CLAW SHARED CONTEXT]\n\nYou are operating as ${target} inside CLAW Bridge. Android is the control plane. Treat the shared context as continuity from prior planning, but verify dynamic repository facts before acting. Do not ask the user to repeat decisions already present here. Protected external actions still require CLAW approval. Do not expose secrets or credentials in summaries.\n\nUSER REQUEST:\n${input}`
+}
+
+async function planWithBrain(params) {
+  const goal = String(params?.goal || "").trim()
+  if (!goal) throw new Error("Brain goal is required")
+  const snapshot = await contextSnapshot()
+  let seekclawJob = null
+  if (params?.seekclawJobId) {
+    const record = await seekclaw.get(String(params.seekclawJobId))
+    seekclawJob = {
+      job: record.job,
+      state: record.state,
+      evaluation: record.evaluation,
+      submissionReady: Boolean(record.submission),
+    }
+  }
+  const context = buildCompactSharedContext(snapshot, null, goal, Math.min(CONTEXT_CHAR_BUDGET, 10_000))
+  return brain.plan({ goal, context, runtime: snapshot.runtime, seekclawJob })
 }
 
 function proxyHostAllowed(host) {
@@ -205,37 +310,82 @@ async function requestApproval(ws, channel, request, display) {
     status: "pending",
   }
   approvals.set(approval.id, approval)
-  broadcastApprovals()
+  await broadcastApprovals()
   await broadcastStatus()
   emitRun(ws, channel, "status", `Waiting for approval: ${approval.id}`)
   return new Promise((resolveDecision) => approvalWaiters.set(approval.id, { resolveDecision, rule }))
 }
 
 async function startRun(ws, params) {
-  const { channel, input, target, permissionMode } = params || {}
+  const { channel, input, target, permissionMode, handoffId } = params || {}
   if (!channel || !input || !target) throw new Error("Invalid run request")
-  const spec = buildCommand(String(input), target)
-  const allowed = await requestApproval(ws, channel, { target, permissionMode }, spec.display)
+  const originalInput = String(input)
+  const agentTarget = target === "codex" || target === "claude-code" || target === "auto"
+  const contextualInput = agentTarget ? await contextualizeInput(originalInput, target, handoffId) : originalInput
+  const spec = buildCommand(contextualInput, target)
+  const displaySpec = buildCommand(originalInput, target)
+  const allowed = await requestApproval(ws, channel, { target, permissionMode }, displaySpec.display)
   if (!allowed) {
     emitRun(ws, channel, "stopped", "Run denied")
     return
   }
 
-  emitRun(ws, channel, "status", `Starting ${target}`)
+  if (handoffId) await contextStore.startHandoff(String(handoffId), target)
+  emitRun(ws, channel, "status", handoffId ? `Starting ${target} with shared context` : `Starting ${target}`)
+  const cwd = process.env.CLAW_PROJECT || homedir()
+  let stdout = ""
+  let stderr = ""
+  let spawnFailed = false
   const child = spawn(spec.command, spec.args, {
-    cwd: process.env.CLAW_PROJECT || homedir(),
-    env: target === "codex" || target === "claude-code" || target === "auto" ? agentEnvironment() : process.env,
-    stdio: ["ignore", "pipe", "pipe"],
+    cwd,
+    env: agentTarget ? agentEnvironment() : process.env,
+    stdio: [spec.stdin !== null ? "pipe" : "ignore", "pipe", "pipe"],
   })
   runs.set(channel, child)
-  child.stdout.on("data", (chunk) => emitRun(ws, channel, "stdout", chunk.toString()))
-  child.stderr.on("data", (chunk) => emitRun(ws, channel, "stderr", chunk.toString()))
-  child.on("error", (error) => emitRun(ws, channel, "error", error.message))
+  child.on("spawn", () => {
+    if (spec.stdin !== null && child.stdin) child.stdin.end(spec.stdin)
+  })
+  child.stdout.on("data", (chunk) => {
+    const text = chunk.toString()
+    stdout = (stdout + text).slice(-64_000)
+    emitRun(ws, channel, "stdout", text)
+  })
+  child.stderr.on("data", (chunk) => {
+    const text = chunk.toString()
+    stderr = (stderr + text).slice(-64_000)
+    emitRun(ws, channel, "stderr", text)
+  })
+  child.on("error", (error) => {
+    spawnFailed = true
+    stderr = (stderr + error.message).slice(-64_000)
+    emitRun(ws, channel, "error", error.message)
+  })
   child.on("close", async (code, signal) => {
     runs.delete(channel)
+    const ok = !spawnFailed && !signal && code === 0
+    try {
+      const [gitStatus, commit] = await Promise.all([
+        capture("git", ["-C", cwd, "status", "--porcelain"], 2000),
+        capture("git", ["-C", cwd, "rev-parse", "--short", "HEAD"], 2000),
+      ])
+      const result = {
+        ok,
+        executor: target,
+        summary: outputTail(stdout, stderr, ok),
+        changedFiles: parseGitStatus(gitStatus),
+        tests: extractTestSignals(`${stdout}\n${stderr}`),
+        blockers: ok ? [] : [signal ? `Stopped by ${signal}` : spawnFailed ? "Executor failed to start" : `Exited with code ${code}`],
+        commit,
+        finishedAt: now(),
+      }
+      if (handoffId) await contextStore.completeHandoff(String(handoffId), result)
+      else if (agentTarget) await contextStore.recordResult(result)
+    } catch (error) {
+      emitRun(ws, channel, "stderr", `Shared context writeback failed: ${error instanceof Error ? error.message : "unknown error"}`)
+    }
     if (signal) emitRun(ws, channel, "stopped", `Stopped (${signal})`)
-    else if (code === 0) emitRun(ws, channel, "done", "Completed successfully")
-    else emitRun(ws, channel, "error", `Exited with code ${code}`)
+    else if (ok) emitRun(ws, channel, "done", "Completed successfully")
+    else if (!spawnFailed) emitRun(ws, channel, "error", `Exited with code ${code}`)
     await broadcastStatus()
   })
   void broadcastStatus()
@@ -257,9 +407,7 @@ function simpleCdTarget(input) {
   if (!match) return null
   let requested = match[1]?.trim() || homedir()
   if (/[;&|<>`$()\n]/.test(requested)) return null
-  if ((requested.startsWith('"') && requested.endsWith('"')) || (requested.startsWith("'") && requested.endsWith("'"))) {
-    requested = requested.slice(1, -1)
-  }
+  if ((requested.startsWith('"') && requested.endsWith('"')) || (requested.startsWith("'") && requested.endsWith("'"))) requested = requested.slice(1, -1)
   return requested
 }
 
@@ -302,26 +450,57 @@ async function execTerminal(ws, params) {
 
 async function resolveApproval(params) {
   const { approvalId, decision } = params || {}
+  if (!["deny", "allow-once", "always-allow"].includes(decision)) throw new Error("Invalid approval decision")
+  if (typeof approvalId === "string" && approvalId.startsWith("seekclaw_approval_")) {
+    const pending = (await seekclaw.listApprovals()).find((item) => item.id === approvalId)
+    if (!pending) throw new Error("Approval no longer pending")
+    await seekclaw.resolveApproval(approvalId, decision)
+    audit = [{ id: id("audit"), approvalId, command: pending.command, agent: pending.agent, project: pending.project, risk: pending.risk, decision, decidedAt: now() }, ...audit].slice(0, 1000)
+    await writeFile(AUDIT_FILE, JSON.stringify(audit, null, 2), { mode: 0o600 })
+    await broadcastApprovals()
+    await broadcastStatus()
+    return { ...pending, status: decision === "deny" ? "denied" : "allowed-once" }
+  }
   const approval = approvals.get(approvalId)
   if (!approval || approval.status !== "pending") throw new Error("Approval no longer exists")
   approval.status = decision === "deny" ? "denied" : decision === "allow-once" ? "allowed-once" : "always-allowed"
   const waiter = approvalWaiters.get(approvalId)
   approvalWaiters.delete(approvalId)
   if (decision === "always-allow" && waiter) allowedRules.add(waiter.rule)
-  const entry = {
-    id: id("audit"), approvalId, command: approval.command, agent: approval.agent,
-    project: approval.project, risk: approval.risk, decision, decidedAt: now(),
-  }
+  const entry = { id: id("audit"), approvalId, command: approval.command, agent: approval.agent, project: approval.project, risk: approval.risk, decision, decidedAt: now() }
   audit = [entry, ...audit].slice(0, 1000)
   await writeFile(AUDIT_FILE, JSON.stringify(audit, null, 2), { mode: 0o600 })
   waiter?.resolveDecision(decision !== "deny")
-  broadcastApprovals()
+  await broadcastApprovals()
   await broadcastStatus()
   return approval
 }
 
 async function dispatch(ws, method, params) {
   switch (method) {
+    case "context.get": return contextSnapshot()
+    case "context.project.update": await contextStore.updateProject(params || {}); return contextSnapshot()
+    case "context.memory.add": await contextStore.addNote(params?.text, params?.source); return contextSnapshot()
+    case "context.handoff.list": return contextStore.listHandoffs()
+    case "context.handoff.get": return contextStore.getHandoff(params?.handoffId)
+    case "context.handoff.create": return contextStore.createHandoff(params || {})
+    case "brain.config.get": return brain.publicConfig()
+    case "brain.config.update": {
+      const result = await brain.update(params || {})
+      await broadcastStatus()
+      return result
+    }
+    case "brain.plan": return planWithBrain(params)
+    case "seekclaw.jobs.list": return seekclaw.list()
+    case "seekclaw.jobs.get": return seekclaw.get(params?.jobId)
+    case "seekclaw.jobs.discover": return seekclaw.discover()
+    case "seekclaw.jobs.evaluate": return seekclaw.evaluate(params?.jobId, params?.profile)
+    case "seekclaw.jobs.act": {
+      const result = await seekclaw.act(params?.jobId, params?.revision, params?.action)
+      await broadcastApprovals()
+      await broadcastStatus()
+      return result
+    }
     case "status.get": return status()
     case "run.start": void startRun(ws, params).catch((error) => emitRun(ws, params?.channel, "error", error.message)); return { accepted: true }
     case "run.stop": runs.get(params?.channel)?.kill("SIGTERM"); return { stopped: true }
@@ -343,7 +522,7 @@ async function dispatch(ws, method, params) {
 const server = createServer((request, response) => {
   if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" })
-    response.end(JSON.stringify({ ok: true, version: VERSION }))
+    response.end(JSON.stringify({ ok: true, version: VERSION, brain: brain.publicConfig().configured }))
     return
   }
   response.writeHead(404).end()

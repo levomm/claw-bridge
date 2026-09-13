@@ -1,3 +1,6 @@
+import type { CapabilityProfile, JobAction, JobRecord } from "../seekclaw/types"
+import type { ClawContextSnapshot, ContextHandoff, CreateHandoffInput, ProjectContextPatch } from "../context/types"
+import type { BrainConfigPatch, BrainPlan, BrainPlanRequest, BrainPublicConfig } from "../brain/types"
 import { Capacitor } from "@capacitor/core"
 import type { EventMessage, GatewayMethod, RequestMessage, ServerMessage } from "./protocol"
 import {
@@ -143,6 +146,42 @@ export class WebSocketGatewayClient implements GatewayClient {
     }
   }
 
+  getContext() {
+    return this.request<ClawContextSnapshot>("context.get")
+  }
+
+  updateProjectContext(patch: ProjectContextPatch) {
+    return this.request<ClawContextSnapshot>("context.project.update", patch)
+  }
+
+  addContextNote(text: string, source = "chat") {
+    return this.request<ClawContextSnapshot>("context.memory.add", { text, source })
+  }
+
+  listContextHandoffs() {
+    return this.request<ContextHandoff[]>("context.handoff.list")
+  }
+
+  getContextHandoff(handoffId: string) {
+    return this.request<ContextHandoff>("context.handoff.get", { handoffId })
+  }
+
+  createContextHandoff(input: CreateHandoffInput) {
+    return this.request<ContextHandoff>("context.handoff.create", input)
+  }
+
+  getBrainConfig() {
+    return this.request<BrainPublicConfig>("brain.config.get")
+  }
+
+  updateBrainConfig(patch: BrainConfigPatch) {
+    return this.request<BrainPublicConfig>("brain.config.update", patch)
+  }
+
+  planBrainAction(request: BrainPlanRequest) {
+    return this.request<BrainPlan>("brain.plan", request, 60_000)
+  }
+
   listTerminalSessions() {
     return this.request<TerminalSession[]>("terminal.list")
   }
@@ -165,12 +204,32 @@ export class WebSocketGatewayClient implements GatewayClient {
     }
   }
 
+  listSeekClawJobs() {
+    return this.request<JobRecord[]>("seekclaw.jobs.list")
+  }
+
+  discoverSeekClawJobs() {
+    return this.request<JobRecord[]>("seekclaw.jobs.discover", undefined, 30_000)
+  }
+
+  getSeekClawJob(jobId: string) {
+    return this.request<JobRecord>("seekclaw.jobs.get", { jobId })
+  }
+
+  evaluateSeekClawJob(jobId: string, profile: CapabilityProfile) {
+    return this.request<JobRecord>("seekclaw.jobs.evaluate", { jobId, profile }, 30_000)
+  }
+
+  actOnSeekClawJob(jobId: string, revision: number, action: JobAction) {
+    return this.request<JobRecord>("seekclaw.jobs.act", { jobId, revision, action })
+  }
+
   listApprovals() {
     return this.request<ApprovalRequest[]>("approvals.list")
   }
 
   resolveApproval(approvalId: string, decision: ApprovalDecision) {
-    return this.request<ApprovalRequest>("approvals.resolve", { approvalId, decision })
+    return this.request<ApprovalRequest>("approvals.resolve", { approvalId, decision }, 60_000)
   }
 
   listAuditLog() {

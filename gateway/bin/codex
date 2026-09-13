@@ -1,0 +1,43 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+PROJECT="${CLAW_PROJECT:-$HOME/CLAW-Bridge-v03}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+FILTER="$SCRIPT_DIR/../agent-input-filter.mjs"
+
+run_codex() {
+  if command -v proot-distro >/dev/null 2>&1 && proot-distro login ubuntu -- test -x /root/.local/bin/codex >/dev/null 2>&1; then
+    exec proot-distro login ubuntu --bind "$PROJECT:/workspace" -- bash -lc '
+      cd /workspace
+      exec /root/.local/bin/codex "$@"
+    ' bash "$@"
+  fi
+
+  if [ -x "$HOME/.local/bin/codex-termux-native" ]; then
+    exec "$HOME/.local/bin/codex-termux-native" "$@"
+  fi
+
+  printf '%s\n' 'CLAW Codex executor unavailable. Install Codex in Ubuntu PRoot or restore codex-termux-native.' >&2
+  exit 127
+}
+
+if [ "${1:-}" = "exec" ] && [ "${2:-}" = "-" ] && [ -f "$FILTER" ]; then
+  if command -v proot-distro >/dev/null 2>&1 && proot-distro login ubuntu -- test -x /root/.local/bin/codex >/dev/null 2>&1; then
+    # Android PRoot is already the isolation boundary. Codex's Linux bubblewrap
+    # sandbox cannot create the namespaces it needs here and exits 182 before
+    # even read-only shell commands run. CLAW keeps its own run-level approval
+    # gate, so bypass only Codex's nested sandbox for this filtered exec path.
+    node "$FILTER" | proot-distro login ubuntu --bind "$PROJECT:/workspace" -- bash -lc '
+      cd /workspace
+      exec /root/.local/bin/codex --dangerously-bypass-approvals-and-sandbox "$@"
+    ' bash "$@"
+    exit $?
+  fi
+
+  if [ -x "$HOME/.local/bin/codex-termux-native" ]; then
+    node "$FILTER" | "$HOME/.local/bin/codex-termux-native" "$@"
+    exit $?
+  fi
+fi
+
+run_codex "$@"

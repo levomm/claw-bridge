@@ -1,12 +1,12 @@
 import { AppShell } from "@/components/app-shell"
 import { ConnectionGate } from "@/components/connection-gate"
-import { Dashboard } from "@/components/dashboard/dashboard"
+import { SeekClawDashboard } from "@/components/seekclaw/seekclaw-dashboard"
 
-export default function Page() {
+export default function SeekClawPage() {
   return (
-    <AppShell titleKey="title.dashboard">
+    <AppShell title="SeekClaw">
       <ConnectionGate>
-        <Dashboard />
+        <SeekClawDashboard />
       </ConnectionGate>
     </AppShell>
   )

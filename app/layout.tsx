@@ -2,6 +2,9 @@ import { Analytics } from "@vercel/analytics/next"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { BridgeProvider } from "@/components/providers/bridge-provider"
+import { ThemeProfileProvider } from "@/components/providers/theme-profile-provider"
+import { LanguageProvider } from "@/components/providers/language-provider"
+import { ObserverProvider } from "@/components/providers/observer-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { BiometricGate } from "@/components/biometric-gate"
 import { LaunchSplash } from "@/components/launch-splash"
@@ -37,7 +40,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: "dark",
+  colorScheme: "dark light",
   themeColor: "#0a0a0a",
   width: "device-width",
   initialScale: 1,
@@ -52,13 +55,19 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="et" className={`dark bg-background ${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`dark bg-background ${geistSans.variable} ${geistMono.variable}`}>
       <body className="min-h-dvh font-sans antialiased">
         <LaunchSplash />
-        <BridgeProvider>
-          <BiometricGate>{children}</BiometricGate>
-          <Toaster position="top-center" offset="calc(env(safe-area-inset-top) + 12px)" />
-        </BridgeProvider>
+        <LanguageProvider>
+          <ThemeProfileProvider>
+            <BridgeProvider>
+              <ObserverProvider>
+                <BiometricGate>{children}</BiometricGate>
+              </ObserverProvider>
+              <Toaster position="top-center" offset="calc(env(safe-area-inset-top) + 12px)" />
+            </BridgeProvider>
+          </ThemeProfileProvider>
+        </LanguageProvider>
         {process.env.NODE_ENV === "production" && <Analytics />}
       </body>
     </html>

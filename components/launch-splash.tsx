@@ -37,7 +37,7 @@ export function LaunchSplash() {
         </svg>
       </div>
       <div className="claw-launch__name">CLAW <span>BRIDGE</span></div>
-      <div className="claw-launch__version">v0.3 beta</div>
+      <div className="claw-launch__version">v0.4 beta</div>
     </div>
   )
 }

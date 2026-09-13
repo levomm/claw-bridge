@@ -16,13 +16,17 @@ const tokenFile = join(stateDir, "token")
 const runDir = join(stateDir, "run")
 const logDir = join(stateDir, "logs")
 const gatewayPidFile = join(runDir, "gateway.pid")
+const observerPidFile = join(runDir, "observer.pid")
 const frontendPidFile = join(runDir, "frontend.pid")
 const gatewayLog = join(logDir, "gateway.log")
+const observerLog = join(logDir, "observer.log")
 const frontendLog = join(logDir, "frontend.log")
 const gatewayHost = process.env.CLAW_HOST || "127.0.0.1"
 const gatewayPort = Number(process.env.CLAW_PORT || 8787)
+const observerHost = process.env.CLAW_OBSERVER_HOST || "127.0.0.1"
+const observerPort = Number(process.env.CLAW_OBSERVER_PORT || 8790)
 const ipv4ProxyPort = Number(process.env.CLAW_IPV4_PROXY_PORT || 8788)
-const ipv4ProxyEnabled = process.env.CLAW_IPV4_PROXY !== "0"
+const ipv4ProxyEnabled = process.env.CLAW_IPV4_PROXY === "1"
 const frontendHost = process.env.CLAW_FRONTEND_HOST || "127.0.0.1"
 const frontendPort = Number(process.env.CLAW_FRONTEND_PORT || 3000)
 const command = process.argv[2] || "help"
@@ -201,6 +205,7 @@ async function install() {
     runChecked(process.execPath, [join(projectDir, "node_modules", "next", "dist", "bin", "next"), "build"], { env: cleanEnv })
   }
   await chmod(join(gatewayDir, "claw.mjs"), 0o700)
+  await chmod(join(gatewayDir, "bin", "codex"), 0o700).catch(() => {})
   await linkCli()
 
   const bootDir = join(homedir(), ".termux", "boot")
@@ -215,11 +220,33 @@ async function install() {
 async function up() {
   await ensureState()
   await getToken()
+  await chmod(join(gatewayDir, "bin", "codex"), 0o700).catch(() => {})
   if (isTermux()) spawnSync("termux-wake-lock", [], { stdio: "ignore" })
+
+  const observer = await startService({
+    name: "observer", pidFile: observerPidFile, logFile: observerLog,
+    script: join(gatewayDir, "observer-server.mjs"),
+    env: {
+      CLAW_DATA_DIR: stateDir,
+      CLAW_OBSERVER_HOST: observerHost,
+      CLAW_OBSERVER_PORT: String(observerPort),
+    },
+    port: observerPort, healthUrl: `http://127.0.0.1:${observerPort}/health`,
+  })
+  console.log(`Observer ${observer.alreadyRunning ? "already running" : "started"} (PID ${observer.pid})`)
+
+  const gatewayPath = `${join(gatewayDir, "bin")}:${process.env.PATH || ""}`
   const gateway = await startService({
     name: "gateway", pidFile: gatewayPidFile, logFile: gatewayLog,
     script: join(gatewayDir, "server.mjs"),
-    env: { CLAW_HOST: gatewayHost, CLAW_PORT: String(gatewayPort), CLAW_IPV4_PROXY_PORT: String(ipv4ProxyPort) },
+    env: {
+      CLAW_HOST: gatewayHost,
+      CLAW_PORT: String(gatewayPort),
+      CLAW_PROJECT: projectDir,
+      CLAW_IPV4_PROXY: ipv4ProxyEnabled ? "1" : "0",
+      CLAW_IPV4_PROXY_PORT: String(ipv4ProxyPort),
+      PATH: gatewayPath,
+    },
     port: gatewayPort, healthUrl: `http://127.0.0.1:${gatewayPort}/health`,
     reservedPorts: ipv4ProxyEnabled ? [{ name: "IPv4 agent proxy", port: ipv4ProxyPort }] : [],
   })
@@ -227,6 +254,7 @@ async function up() {
   if (ipv4ProxyEnabled) console.log(`Codex/Claude IPv4 fallback: http://127.0.0.1:${ipv4ProxyPort}`)
   if (gatewayOnly) {
     console.log(`Gateway: ws://127.0.0.1:${gatewayPort}`)
+    console.log(`Observer: http://127.0.0.1:${observerPort}`)
     console.log("APK mode: the frontend runs inside CLAW Bridge.")
     console.log("Pairing token: claw pair")
     return
@@ -244,15 +272,18 @@ async function up() {
 async function down() {
   const frontend = await stopService("frontend", frontendPidFile)
   const gateway = await stopService("gateway", gatewayPidFile)
+  const observer = await stopService("observer", observerPidFile)
   if (isTermux()) spawnSync("termux-wake-unlock", [], { stdio: "ignore" })
   console.log(`${frontend.stopped ? "Stopped" : "Not running"}: frontend`)
   console.log(`${gateway.stopped ? "Stopped" : "Not running"}: gateway`)
+  console.log(`${observer.stopped ? "Stopped" : "Not running"}: observer`)
 }
 
 async function status() {
   await ensureState()
   const services = [
     { name: "gateway", pidFile: gatewayPidFile, port: gatewayPort, log: gatewayLog, url: `http://127.0.0.1:${gatewayPort}/health` },
+    { name: "observer", pidFile: observerPidFile, port: observerPort, log: observerLog, url: `http://127.0.0.1:${observerPort}/health` },
     ...(!gatewayOnly ? [{ name: "frontend", pidFile: frontendPidFile, port: frontendPort, log: frontendLog, url: `http://127.0.0.1:${frontendPort}/health` }] : []),
   ]
   let failed = false
@@ -275,7 +306,10 @@ async function status() {
 async function logs(target = process.argv[3]) {
   await ensureState()
   const follow = process.argv.includes("-f") || process.argv.includes("--follow")
-  const files = target === "gateway" ? [gatewayLog] : target === "frontend" ? [frontendLog] : [gatewayLog, frontendLog]
+  const files = target === "gateway" ? [gatewayLog]
+    : target === "observer" ? [observerLog]
+      : target === "frontend" ? [frontendLog]
+        : [gatewayLog, observerLog, frontendLog]
   if (follow) {
     const child = spawn("tail", ["-n", "80", "-f", ...files], { stdio: "inherit" })
     child.on("exit", (code) => process.exit(code ?? 0))
@@ -325,7 +359,7 @@ async function main() {
     default:
       console.log("Usage: claw <install|up|down|restart|status|logs|pair|rotate-token>")
       console.log("       claw install|up|status [--gateway-only]  # APK mode")
-      console.log("       claw logs [gateway|frontend] [-f]")
+      console.log("       claw logs [gateway|observer|frontend] [-f]")
   }
 }
 
