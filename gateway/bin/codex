@@ -4,6 +4,7 @@ set -eu
 PROJECT="${CLAW_PROJECT:-$HOME/CLAW-Bridge-v03}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 FILTER="$SCRIPT_DIR/../agent-input-filter.mjs"
+PROOT_SANDBOX="${CLAW_CODEX_PROOT_SANDBOX:-danger-full-access}"
 
 run_codex() {
   if command -v proot-distro >/dev/null 2>&1 && proot-distro login ubuntu -- test -x /root/.local/bin/codex >/dev/null 2>&1; then
@@ -23,9 +24,13 @@ run_codex() {
 
 if [ "${1:-}" = "exec" ] && [ "${2:-}" = "-" ] && [ -f "$FILTER" ]; then
   if command -v proot-distro >/dev/null 2>&1 && proot-distro login ubuntu -- test -x /root/.local/bin/codex >/dev/null 2>&1; then
-    node "$FILTER" | proot-distro login ubuntu --bind "$PROJECT:/workspace" -- bash -lc '
+    # Codex's Linux sandbox is nested inside Android PRoot here. On this runtime
+    # the nested bubblewrap/seccomp path cannot even spawn read-only commands.
+    # CLAW already owns the run-level approval gate, so only CLAW's filtered
+    # non-interactive exec path uses a configurable full-access Codex sandbox.
+    node "$FILTER" | proot-distro login ubuntu --bind "$PROJECT:/workspace" -- env CLAW_CODEX_PROOT_SANDBOX="$PROOT_SANDBOX" bash -lc '
       cd /workspace
-      exec /root/.local/bin/codex "$@"
+      exec /root/.local/bin/codex -s "$CLAW_CODEX_PROOT_SANDBOX" "$@"
     ' bash "$@"
     exit $?
   fi
